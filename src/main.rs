@@ -21,23 +21,11 @@ const BREAK_MINUTES: u64 = 10;
 
 const BEEP_DURATION_MILLIS: u64 = 500;
 
-// struct Led<'d, T> {
-//     red: SimplePwm<'d, T>,
-//     green: SimplePwm<'d, T>,
-//     blue: SimplePwm<'d, T>,
-// }
-//
-// impl<T> Led<'_, T> {
-//     fn new(red: SimplePwm<T>, green: SimplePwm<T>, blue: SimplePwm<T>) -> Self {
-//         Self { red, green, blue }
-//     }
-// }
-//
-// async fn beep<T: Pin>(speaker: &mut Output<'_, T>) {
-//     speaker.set_high();
-//     Timer::after(Duration::from_millis(BEEP_DURATION_MILLIS)).await;
-//     speaker.set_low();
-// }
+async fn beep<T: Pin>(speaker: &mut Output<'_, T>) {
+    speaker.set_high();
+    Timer::after(Duration::from_millis(BEEP_DURATION_MILLIS)).await;
+    speaker.set_low();
+}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -50,22 +38,36 @@ async fn main(_spawner: Spawner) {
     let red_pin = PwmPin::new_ch3(p.PA2);
     let blue_pin = PwmPin::new_ch4(p.PA3);
 
-    // let mut led_green =
-    //     SimplePwm::new(p.TIM2, None, Some(green_pin), None, None, hz(2000));
-    let mut led_red=
-        SimplePwm::new(p.TIM2, None, None, Some(red_pin), None, hz(2000));
-    // let mut led_blue =
-    //     SimplePwm::new(p.TIM2, None, None, None, Some(blue_pin), hz(2000));
+    let mut led = SimplePwm::new(
+        p.TIM2,
+        None,
+        Some(green_pin),
+        Some(red_pin),
+        Some(blue_pin),
+        hz(2000),
+    );
 
-    let max_duty = led_red.get_max_duty();
-//    led_green.set_duty(Channel::Ch2, max_duty / 2);
-    led_red.set_duty(Channel::Ch3, max_duty / 2);
-//    led_blue.set_duty(Channel::Ch4, max_duty / 2);
+    // Timer doesnt work anymore when using pwm led
+    let max_duty = led.get_max_duty();
+    led.set_duty(Channel::Ch2, max_duty / 2);
+    led.set_duty(Channel::Ch3, max_duty / 2);
+    led.set_duty(Channel::Ch4, max_duty / 2);
+
+    led.enable(Channel::Ch2);
+    led.enable(Channel::Ch3);
+    led.enable(Channel::Ch4);
 
     loop {
         info!("high: work");
         usb_power.set_high();
-        led_red.enable(Channel::Ch3);
+        println!("Groen aan");
+        //Timer::after(Duration::from_secs(2)).await;
+        println!("Groen uit");
+        led.disable(Channel::Ch2);
+        //Timer::after(Duration::from_secs(2)).await;
+        led.disable(Channel::Ch3);
+        //Timer::after(Duration::from_secs(2)).await;
+        led.disable(Channel::Ch4);
         info!("waiting for {} minutes", WORK_MINUTES);
         //Timer::after(Duration::from_secs(WORK_MINUTES * 60 - WARNING_PERIOD_SECS)).await;
         Timer::after(Duration::from_secs(15)).await;
