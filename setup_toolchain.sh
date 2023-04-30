@@ -10,7 +10,7 @@ UDEV_RULE4='ATTRS{idVendor}=="0483", ATTRS{idProduct}=="374b", TAG+="uaccess"'
 
 function install_tools {
 	echo "installing tools"
-	rustup override set nightly
+	rustup override unset  # now using rust-toolchain.toml for this
 	rustup target add thumbv7em-none-eabihf
 
 	# workaround for issue: https://github.com/knurling-rs/probe-run/issues/289
