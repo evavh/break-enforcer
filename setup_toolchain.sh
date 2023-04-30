@@ -2,11 +2,13 @@
 set -e
 
 # for newer or different prorammers edit idVendor and idProduct (use lsusb to find these)
-UDEV_FILE=/etc/udev/rules.d/70-st-link.rules
+UDEV_FILE=/etc/udev/rules.d/70-rust-embedded.rules
 UDEV_RULE1='# ST-LINK/V2'
 UDEV_RULE2='ATTRS{idVendor}=="0483", ATTRS{idProduct}=="3748", TAG+="uaccess"'
 UDEV_RULE3='# ST-LINK/V2-1'
 UDEV_RULE4='ATTRS{idVendor}=="0483", ATTRS{idProduct}=="374b", TAG+="uaccess"'
+UDEV_RULE5='# CMSIS_DAP'
+UDEV_RULE6='ATTRS{idVendor}=="c251", ATTRS{idProduct}=="f001", TAG+="uaccess"'
 
 function install_tools {
 	echo "installing tools"
@@ -32,6 +34,8 @@ function fix_udev_rules {
 		echo "${UDEV_RULE2}" | sudo tee -a $UDEV_FILE > /dev/null
 		echo "${UDEV_RULE3}" | sudo tee -a $UDEV_FILE > /dev/null
 		echo "${UDEV_RULE4}" | sudo tee -a $UDEV_FILE > /dev/null
+		echo "${UDEV_RULE5}" | sudo tee -a $UDEV_FILE > /dev/null
+		echo "${UDEV_RULE6}" | sudo tee -a $UDEV_FILE > /dev/null
 		sudo udevadm control --reload-rules
 		echo "created udev rules: $UDEV_FILE"
 	fi
