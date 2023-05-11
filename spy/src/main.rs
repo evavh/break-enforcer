@@ -3,10 +3,12 @@
 
 use defmt::info;
 use defmt_rtt as _;
+use fugit::RateExtU32;
 use hal::{
-    gpio::{self, Pin},
+    gpio::{self, Pin, PinExt},
     pac::Peripherals,
     prelude::_stm32f4xx_hal_gpio_GpioExt,
+    rcc::RccExt,
     syscfg::SysCfgExt,
 };
 // global logger
@@ -38,7 +40,7 @@ pub fn exit() -> ! {
 }
 
 type UsbData = Pin<'B', 1>;
-static ARRAY: Mutex<[bool; 80]> = Mutex::new([false; 80]);
+static ARRAY: Mutex<[u32; 80]> = Mutex::new([0u32; 80]);
 static USB: Mutex<Cell<Option<UsbData>>> = Mutex::new(Cell::new(None));
 static DONE: AtomicBool = AtomicBool::new(false);
 
@@ -58,7 +60,7 @@ unsafe fn force_mut<T>(reference: &T) -> &mut T {
 // the IRQ the data will be analyzed
 
 // put interrupt code in ram (.data is kept in ram)
-#[link_section = ".data.EXTI1"] 
+#[link_section = ".data.EXTI1"]
 #[interrupt]
 fn EXTI1() {
     cortex_m::interrupt::free(|cs| {
@@ -72,7 +74,7 @@ fn EXTI1() {
         };
         usb.clear_interrupt_pending_bit();
         for m in array {
-            *m = usb.is_high();
+            *m = unsafe { (*hal::pac::GPIOB::ptr()).idr.read().bits() }
         }
     });
     DONE.store(true, Ordering::Relaxed);
@@ -81,6 +83,8 @@ fn EXTI1() {
 #[entry]
 fn main() -> ! {
     let mut dp = Peripherals::take().unwrap();
+    let rcc = dp.RCC.constrain();
+    let _clocks = rcc.cfgr.sysclk(82.MHz()).hclk(82.MHz()).freeze();
 
     // set power on usb (prototype needs this)
     let gpio_c = dp.GPIOC.split();
@@ -89,6 +93,7 @@ fn main() -> ! {
 
     let gpio_b = dp.GPIOB.split();
     let mut usb = gpio_b.pb1.into_floating_input();
+    let usb_pin = usb.pin_id();
 
     let mut syscfg = dp.SYSCFG.constrain();
     usb.make_interrupt_source(&mut syscfg);
@@ -114,7 +119,9 @@ fn main() -> ! {
         let mut array = [false; 80];
         cortex_m::interrupt::free(|cs| {
             let shared = ARRAY.borrow(cs);
-            array = shared.clone();
+            for (port, is_high) in shared.iter().zip(&mut array) {
+                *is_high = port & (1 << usb_pin) == 1;
+            }
         });
 
         info!("array: {}", array);
