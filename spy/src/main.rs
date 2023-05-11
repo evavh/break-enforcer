@@ -5,7 +5,7 @@ use defmt::info;
 use defmt_rtt as _;
 use fugit::RateExtU32;
 use hal::{
-    gpio::{self, Pin, PinExt, PA3},
+    gpio::{self, PinExt},
     pac::Peripherals,
     prelude::_stm32f4xx_hal_gpio_GpioExt,
     rcc::RccExt,
@@ -18,14 +18,7 @@ use stm32f4xx_hal as hal; // includes memory.x?
 
 use crate::hal::{pac::interrupt, prelude::_stm32f4xx_hal_gpio_ExtiPin};
 
-use core::{
-    arch::asm,
-    cell::Cell,
-    hint::black_box,
-    str::from_utf8_unchecked,
-    sync::atomic::{AtomicBool, Ordering},
-};
-use cortex_m::interrupt::Mutex;
+use core::sync::atomic::{AtomicBool, Ordering};
 use cortex_m_rt::entry;
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message
@@ -113,39 +106,62 @@ fn main() -> ! {
 
         info!("got arrayyyysss");
 
-        for a in &arrayarray {
+        for a in arrayarray {
             let mut ones_and_zeros = ['0'; 240];
-            for (port, c) in a.iter().zip(&mut ones_and_zeros) {
-                let is_high = port & (1 << usb_pin) == 0;
-                if is_high {
-                    *c = '1';
-                }
-            }
-
-            // if array.iter().all(|i| !*i) {
-            //     continue;
-            // }
-
-            info!(
-                "array: {}",
-                BinArray {
-                    inner: ones_and_zeros
-                }
-            );
+            let package = Package::new(a, usb_pin as usize);
+            info!("{}", package);
         }
     }
     exit()
 }
 
-struct BinArray<const N: usize> {
-    inner: [char; N],
+enum Package {
+    Long,
+    Short,
+    Unknown { bytes: [u8; 240] },
 }
 
-impl<const N: usize> defmt::Format for BinArray<N> {
-    fn format(&self, fmt: defmt::Formatter) {
-        for c in self.inner {
-            defmt::write!(fmt, "{}", c);
+impl Package {
+    fn new(bytes: [u32; 240], usb_pin: usize) -> Package {
+        let bytes = bytes.map(|port| port & (1 << usb_pin)).map(|b| b as u8);
+
+        if bytes == package::LONG {
+            return Self::Long;
         }
-        defmt::write!(fmt, "\n");
+        if bytes == package::SHORT {
+            return Self::Short;
+        }
+        Package::Unknown { bytes }
     }
+}
+
+impl defmt::Format for Package {
+    fn format(&self, fmt: defmt::Formatter) {
+        match self {
+            Package::Long => defmt::write!(fmt, "Long"),
+            Package::Short => defmt::write!(fmt, "Short"),
+            Package::Unknown { bytes } => {
+                defmt::write!(fmt, "Unknown, bytes: [");
+                for b in bytes {
+                    if *b == 0 {
+                        defmt::write!(fmt, "0");
+                    } else {
+                        defmt::write!(fmt, "1");
+                    }
+                }
+                defmt::write!(fmt, "]\n");
+            }
+        }
+    }
+}
+
+#[rustfmt::skip]
+mod package {
+    pub const LONG: [u8; 240] = [
+        1,0,1,1,0,0,0,0,0,0,1,1,0,0,0,0,1,1,1,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,1,1,0,1,1,1,1,1,1,1,1,0,0,0,0,0,1,1,1,1,1,1,0,1,1,0,0,1,1,0,0,1,1,0,0,0,0,1,1,1,1,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,0,1,1,0,1,1,0,0,0,1,1,0,0,0,0,1,1,1,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,0,1,1,0,1,1,1,1,1,1,0,0,0,1,1,1,1,1,1,1,1,0,1,1,0,1,0,1,1,0,0,0,0,1,1,1,1,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    ];
+
+    pub const SHORT: [u8; 240] = [
+        1,0,1,1,0,0,0,0,0,0,1,1,1,1,0,0,1,1,1,1,0,0,0,0,0,0,1,1,0,0,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,0,0,0,1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,0,1,1,1,0,1,1,1,0,0,0,0,0,1,1,0,0,1,1,1,1,1,0,0,1,0,0,0,0,1,0,0,1,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    ];
 }
