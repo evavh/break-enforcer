@@ -18,7 +18,10 @@ use stm32f4xx_hal as hal; // includes memory.x?
 
 use crate::hal::{pac::interrupt, prelude::_stm32f4xx_hal_gpio_ExtiPin};
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::{
+    arch::asm,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use cortex_m_rt::entry;
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message
@@ -35,7 +38,8 @@ pub fn exit() -> ! {
     }
 }
 
-static mut ARRAY: [u32; 240] = [0u32; 240];
+const ARRAY_LEN: usize = 240;
+static mut ARRAY: [u32; ARRAY_LEN] = [0u32; ARRAY_LEN];
 static DONE: AtomicBool = AtomicBool::new(false);
 
 // stm32f4 has minimum 12 cycle interrupt delay
@@ -52,11 +56,41 @@ static DONE: AtomicBool = AtomicBool::new(false);
 #[interrupt]
 fn EXTI1() {
     unsafe {
-        for i in &mut ARRAY {
-            *i = (*hal::pac::GPIOB::ptr()).idr.read().bits();
-        }
-    }
-    unsafe {
+        let idr = &(*hal::pac::GPIOB::ptr()).idr;
+        // need to manually unroll loop to get correct timings
+        *ARRAY.get_unchecked_mut(1) = idr.read().bits();
+        asm!( "
+              NOP
+              NOP
+              NOP
+        " );
+        *ARRAY.get_unchecked_mut(2) = idr.read().bits();
+        asm!( "
+              NOP
+              NOP
+              NOP
+        " );
+        // *ARRAY.get_unchecked_mut(3) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(4) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(5) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(6) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(7) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(8) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(9) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(10) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(11) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(12) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(13) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(14) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(15) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(16) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(17) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(18) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(19) = idr.read().bits();
+        // *ARRAY.get_unchecked_mut(20) = idr.read().bits();
+        // for i in 0..ARRAY_LEN {
+        //     *ARRAY.get_unchecked_mut(i) = idr.read().bits();
+        // }
         // set interrupt as handled
         (*hal::pac::EXTI::ptr()).pr.write(|w| w.pr1().set_bit());
     }
@@ -67,7 +101,15 @@ fn EXTI1() {
 fn main() -> ! {
     let mut dp = Peripherals::take().unwrap();
     let rcc = dp.RCC.constrain();
-    let _clocks = rcc.cfgr.sysclk(84.MHz()).freeze();
+    let _clocks = rcc
+        .cfgr
+        .sysclk(84.MHz())
+        .use_hse(84.MHz())
+        .hclk(84.MHz()) // also called AHB clock
+        // APB2 clock; data on I/O pin is sampled into
+        // this every APB2 clock cycle
+        .pclk2(84.MHz())
+        .freeze();
 
     // set power on usb (prototype needs this)
     let gpio_c = dp.GPIOC.split();
