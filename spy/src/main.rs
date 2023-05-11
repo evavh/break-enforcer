@@ -5,7 +5,7 @@ use defmt::info;
 use defmt_rtt as _;
 use fugit::RateExtU32;
 use hal::{
-    gpio::{self, Pin, PinExt},
+    gpio::{self, Pin, PinExt, PA3},
     pac::Peripherals,
     prelude::_stm32f4xx_hal_gpio_GpioExt,
     rcc::RccExt,
@@ -19,7 +19,10 @@ use stm32f4xx_hal as hal; // includes memory.x?
 use crate::hal::{pac::interrupt, prelude::_stm32f4xx_hal_gpio_ExtiPin};
 
 use core::{
+    arch::asm,
     cell::Cell,
+    hint::black_box,
+    str::from_utf8_unchecked,
     sync::atomic::{AtomicBool, Ordering},
 };
 use cortex_m::interrupt::Mutex;
@@ -39,16 +42,8 @@ pub fn exit() -> ! {
     }
 }
 
-type UsbData = Pin<'B', 1>;
-static ARRAY: Mutex<[u32; 80]> = Mutex::new([0u32; 80]);
-static USB: Mutex<Cell<Option<UsbData>>> = Mutex::new(Cell::new(None));
+static mut ARRAY: [u32; 240] = [0u32; 240];
 static DONE: AtomicBool = AtomicBool::new(false);
-
-unsafe fn force_mut<T>(reference: &T) -> &mut T {
-    let const_ptr = reference as *const T;
-    let mut_ptr = const_ptr as *mut T;
-    &mut *mut_ptr
-}
 
 // stm32f4 has minimum 12 cycle interrupt delay
 // usb clocks at 12Mhz, stm at 84Mhz
@@ -63,20 +58,15 @@ unsafe fn force_mut<T>(reference: &T) -> &mut T {
 #[link_section = ".data.EXTI1"]
 #[interrupt]
 fn EXTI1() {
-    cortex_m::interrupt::free(|cs| {
-        let array = unsafe { force_mut(ARRAY.borrow(cs)) };
-        let usb = unsafe {
-            force_mut(USB.borrow(cs))
-                .get_mut()
-                .as_mut()
-                .unwrap_unchecked()
-            // .expect("pin is set before ISR is enabled")
-        };
-        usb.clear_interrupt_pending_bit();
-        for m in array {
-            *m = unsafe { (*hal::pac::GPIOB::ptr()).idr.read().bits() }
+    unsafe {
+        for i in &mut ARRAY {
+            *i = (*hal::pac::GPIOB::ptr()).idr.read().bits();
         }
-    });
+    }
+    unsafe {
+        // set interrupt as handled
+        (*hal::pac::EXTI::ptr()).pr.write(|w| w.pr1().set_bit());
+    }
     DONE.store(true, Ordering::Relaxed);
 }
 
@@ -84,7 +74,7 @@ fn EXTI1() {
 fn main() -> ! {
     let mut dp = Peripherals::take().unwrap();
     let rcc = dp.RCC.constrain();
-    let _clocks = rcc.cfgr.sysclk(82.MHz()).hclk(82.MHz()).freeze();
+    let _clocks = rcc.cfgr.sysclk(84.MHz()).freeze();
 
     // set power on usb (prototype needs this)
     let gpio_c = dp.GPIOC.split();
@@ -101,9 +91,6 @@ fn main() -> ! {
     usb.trigger_on_edge(&mut dp.EXTI, gpio::Edge::Falling);
     let interrupt_number = usb.interrupt();
 
-    cortex_m::interrupt::free(|cs| USB.borrow(cs).swap(&Cell::new(Some(usb))));
-
-    // info!("{:?}", interrupt_number);
     // clear pending interrupts on usb gpio
     cortex_m::peripheral::NVIC::unpend(interrupt_number);
     unsafe {
@@ -111,20 +98,54 @@ fn main() -> ! {
         cortex_m::peripheral::NVIC::unmask(interrupt_number);
     }
 
+    let mut arrayarray: [[u32; 240]; 10] = [[0u32; 240]; 10];
     loop {
-        while !DONE
-            .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok()
-        {}
-        let mut array = [false; 80];
-        cortex_m::interrupt::free(|cs| {
-            let shared = ARRAY.borrow(cs);
-            for (port, is_high) in shared.iter().zip(&mut array) {
-                *is_high = port & (1 << usb_pin) == 1;
-            }
-        });
+        for a in &mut arrayarray {
+            while !DONE
+                .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+            {}
 
-        info!("array: {}", array);
+            unsafe {
+                *a = ARRAY.clone();
+            }
+        }
+
+        info!("got arrayyyysss");
+
+        for a in &arrayarray {
+            let mut ones_and_zeros = ['0'; 240];
+            for (port, c) in a.iter().zip(&mut ones_and_zeros) {
+                let is_high = port & (1 << usb_pin) == 0;
+                if is_high {
+                    *c = '1';
+                }
+            }
+
+            // if array.iter().all(|i| !*i) {
+            //     continue;
+            // }
+
+            info!(
+                "array: {}",
+                BinArray {
+                    inner: ones_and_zeros
+                }
+            );
+        }
     }
     exit()
+}
+
+struct BinArray<const N: usize> {
+    inner: [char; N],
+}
+
+impl<const N: usize> defmt::Format for BinArray<N> {
+    fn format(&self, fmt: defmt::Formatter) {
+        for c in self.inner {
+            defmt::write!(fmt, "{}", c);
+        }
+        defmt::write!(fmt, "\n");
+    }
 }

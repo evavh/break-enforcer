@@ -48,6 +48,7 @@ dependencies = [
  "nb 1.1.0",
  "panic-probe",
  "stm32f4xx-hal",
+ "stm32ral",
 ]
 
 [[package]]
@@ -326,6 +327,16 @@ dependencies = [
  "stm32f4",
  "time",
  "void",
+]
+
+[[package]]
+name = "stm32ral"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48ae31099177ef1bbdeee6f1b9a38d869aa6c8c3232cf248c39642875d42c532"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
 ]
 
 [[package]]
