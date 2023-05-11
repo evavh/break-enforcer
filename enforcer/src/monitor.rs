@@ -1,6 +1,8 @@
+use defmt::println;
 use embassy_stm32::exti::{Channel, ExtiInput};
 use embassy_stm32::gpio::{self, Input, Pull};
 use embassy_stm32::Peripheral;
+use embassy_time::{Duration, Instant};
 
 pub struct UsbData {
     channel_a: ExtiInput<'static, gpio::AnyPin>,
@@ -25,8 +27,15 @@ impl UsbData {
 
 #[embassy_executor::task]
 pub async fn task(mut usb: UsbData) {
+    let mut edges_per_sec = 0usize;
+    let mut last_print = Instant::now();
     loop {
         usb.channel_a.wait_for_rising_edge().await;
-
+        edges_per_sec += 1;
+        if last_print.elapsed() >= Duration::from_secs(1) {
+            last_print = Instant::now();
+            println!("rising edges detected per seconds: {}", edges_per_sec);
+            edges_per_sec = 0;
+        }
     }
 }

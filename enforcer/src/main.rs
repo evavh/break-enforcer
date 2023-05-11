@@ -8,7 +8,6 @@ use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
 use defmt::*;
 use embassy_stm32::executor::{Executor, InterruptExecutor};
-use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::pac::Interrupt;
 use static_cell::StaticCell;
@@ -21,9 +20,9 @@ mod monitor;
 static EXECUTOR_HIGH: InterruptExecutor = InterruptExecutor::new();
 static EXECUTOR_LOW: StaticCell<Executor> = StaticCell::new();
 
-/// Note DO NOT USE EXTI0 for other interrupts
+/// Note DO NOT USE timer 5 for other interrupts
 #[interrupt]
-unsafe fn EXTI0() {
+unsafe fn TIM5() {
     EXECUTOR_HIGH.on_interrupt()
 }
 
@@ -41,7 +40,7 @@ fn main() -> ! {
 
     // High-priority executor: SWI1_EGU1, priority level 6
     unsafe { nvic.set_priority(Interrupt::EXTI0, 6 << 5) };
-    let spawner = EXECUTOR_HIGH.start(Interrupt::EXTI0);
+    let spawner = EXECUTOR_HIGH.start(Interrupt::TIM5);
     unwrap!(spawner.spawn(monitor::task(usb_monitor)));
 
     // Low priority executor: runs in thread mode, using WFE/SEV
