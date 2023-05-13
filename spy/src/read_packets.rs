@@ -18,9 +18,22 @@ use crate::{ARRAY, DONE};
 global_asm! {
     ".section .data.EXTI1",
     ".global EXTI1",
-    ".syntax unified",
+    ".p2align 1",
+    ".type EXTI1,%function",
+    ".code 16",
     ".thumb_func",
 "EXTI1:",
+    ".fnstart",
+    // ".cfi_startproc",
+    ".save {{r7, lr}}",
+    "push {{r7, lr}}",
+	// ".cfi_def_cfa_offset 8",
+	// ".cfi_offset lr, -4",
+	// ".cfi_offset r7, -8",
+	".setfp	r7, sp",
+    "mov r7, sp",
+    // ".cfi_def_cfa_register r7",
+
     // Prepare registers
     //
     // pin adress in r0
@@ -62,6 +75,14 @@ global_asm! {
     "mov r1, #1",                                // 1 cycle
     // set DONE to r1 (which is 1)
     "strb r1, [r0]",                             // 2 cycles
+    
+    "pop {{r7, pc}}",
+    
+	// ".size	EXTI1, .Lfunc_end2-EXTI1",
+	// ".cfi_endproc",
+	".cantunwind",
+	".fnend",
+
     ARRAY = sym ARRAY,
     DONE = sym DONE,
 }
