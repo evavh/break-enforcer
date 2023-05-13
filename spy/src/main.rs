@@ -11,18 +11,16 @@ use hal::{
     rcc::RccExt,
     syscfg::SysCfgExt,
 };
+use stm32f4xx_hal as hal;
 // global logger
 use panic_probe as _;
 
-use stm32f4xx_hal as hal; // includes memory.x?
+use crate::hal::prelude::_stm32f4xx_hal_gpio_ExtiPin;
 
-use crate::hal::{pac::interrupt, prelude::_stm32f4xx_hal_gpio_ExtiPin};
-
-use core::{
-    arch::asm,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use core::sync::atomic::{AtomicBool, Ordering};
 use cortex_m_rt::entry;
+
+mod read_packets;
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message
 // this prevents the panic message being printed *twice* when `defmt::panic` is invoked
@@ -41,61 +39,6 @@ pub fn exit() -> ! {
 const ARRAY_LEN: usize = 240;
 static mut ARRAY: [u32; ARRAY_LEN] = [0u32; ARRAY_LEN];
 static DONE: AtomicBool = AtomicBool::new(false);
-
-// stm32f4 has minimum 12 cycle interrupt delay
-// usb clocks at 12Mhz, stm at 84Mhz
-// stm has 7 cycles for each usb cycle
-// that means this IRQ misses at least the first 2
-// usb clock cycles
-//
-// The IRQ uses polling to get the data faster. After
-// the IRQ the data will be analyzed
-
-// put interrupt code in ram (.data is kept in ram)
-#[link_section = ".data.EXTI1"]
-#[interrupt]
-fn EXTI1() {
-    unsafe {
-        let idr = &(*hal::pac::GPIOB::ptr()).idr;
-        // need to manually unroll loop to get correct timings
-        *ARRAY.get_unchecked_mut(1) = idr.read().bits();
-        asm!( "
-              NOP
-              NOP
-              NOP
-        " );
-        *ARRAY.get_unchecked_mut(2) = idr.read().bits();
-        asm!( "
-              NOP
-              NOP
-              NOP
-        " );
-        // *ARRAY.get_unchecked_mut(3) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(4) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(5) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(6) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(7) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(8) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(9) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(10) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(11) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(12) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(13) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(14) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(15) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(16) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(17) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(18) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(19) = idr.read().bits();
-        // *ARRAY.get_unchecked_mut(20) = idr.read().bits();
-        // for i in 0..ARRAY_LEN {
-        //     *ARRAY.get_unchecked_mut(i) = idr.read().bits();
-        // }
-        // set interrupt as handled
-        (*hal::pac::EXTI::ptr()).pr.write(|w| w.pr1().set_bit());
-    }
-    DONE.store(true, Ordering::Relaxed);
-}
 
 #[entry]
 fn main() -> ! {
