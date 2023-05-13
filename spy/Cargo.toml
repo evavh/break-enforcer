@@ -26,3 +26,6 @@ lto = true
 codegen-units = 1
 panic = "abort"
 debug = 2
+
+[dev-dependencies]
+cc = "1.0.79"
