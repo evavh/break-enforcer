@@ -105,6 +105,4 @@ global_asm! {
     ARRAY = sym ARRAY,
     DONE = sym DONE,
     GPIO_STATE_PTR = sym GPIO_STATE_PTR,
-    // PIN_STATE_TOP = const GPIO_STATE_TOP,
-    // PIN_STATE_LOWER = const GPIO_STATE_LOWER,
 }

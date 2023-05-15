@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 
-use defmt::info;
+use defmt::{info, trace};
 use defmt_rtt as _;
 use fugit::RateExtU32;
 use hal::{
@@ -37,8 +37,8 @@ pub fn exit() -> ! {
 }
 
 static mut GPIO_STATE_PTR: u32 = 0;
-static mut ARRAY: [u32; 20] = [0u32; 20];
-const ARRAY_LEN: usize = 20;
+static mut ARRAY: [u32; 180] = [5u32; 180];
+const ARRAY_LEN: usize = 180;
 static DONE: AtomicBool = AtomicBool::new(false);
 
 #[entry]
@@ -64,6 +64,8 @@ fn main() -> ! {
     let mut usb = gpio_b.pb1.into_floating_input();
     let usb_pin = usb.pin_id();
     info!("usb bin: {}", usb_pin);
+    // get adress of GPIOB's IDR (input data) register. Accessed as 32 bit
+    // word, however only the lower 16 bit represent pin values
     unsafe { GPIO_STATE_PTR = (*crate::hal::pac::GPIOB::ptr()).idr.as_ptr() as u32 };
     info!("pin addr: {:x}", unsafe { GPIO_STATE_PTR });
 
@@ -82,14 +84,19 @@ fn main() -> ! {
         cortex_m::peripheral::NVIC::unmask(interrupt_number);
     }
 
+    let mut counter = 0;
     let mut arrayarray: [[u32; ARRAY_LEN]; 10] = [[0u32; ARRAY_LEN]; 10];
     loop {
-        info!("hi");
         for a in &mut arrayarray {
             while !DONE
                 .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
                 .is_ok()
-            {}
+            {
+                counter += 1;
+                if counter % 4000 == 0 {
+                    trace!("waiting for interrupt");
+                }
+            }
 
             unsafe {
                 *a = ARRAY.clone();
@@ -112,6 +119,7 @@ enum Package {
 
 impl Package {
     fn new(bytes: [u32; ARRAY_LEN], usb_pin: usize) -> Package {
+        info!("bytes: {}", bytes);
         let bytes = bytes.map(|port| port & (1 << usb_pin)).map(|b| b as u8);
 
         // if bytes == package::LONG {
@@ -132,10 +140,10 @@ impl defmt::Format for Package {
             Package::Unknown { bytes } => {
                 defmt::write!(fmt, "Unknown, bytes: [");
                 for b in bytes {
-                    if *b == 0 {
-                        defmt::write!(fmt, "0");
-                    } else {
-                        defmt::write!(fmt, "1");
+                    match *b {
+                        0 => defmt::write!(fmt, "0"),
+                        1 => defmt::write!(fmt, "1"),
+                        _ => defmt::write!(fmt, "*"),
                     }
                 }
                 defmt::write!(fmt, "]\n");
