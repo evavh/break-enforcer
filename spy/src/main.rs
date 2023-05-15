@@ -36,8 +36,9 @@ pub fn exit() -> ! {
     }
 }
 
-static mut ARRAY: [u32; 240] = [0u32; 240];
-const ARRAY_LEN: usize = 240;
+static mut GPIO_STATE_PTR: u32 = 0;
+static mut ARRAY: [u32; 20] = [0u32; 20];
+const ARRAY_LEN: usize = 20;
 static DONE: AtomicBool = AtomicBool::new(false);
 
 #[entry]
@@ -62,6 +63,11 @@ fn main() -> ! {
     let gpio_b = dp.GPIOB.split();
     let mut usb = gpio_b.pb1.into_floating_input();
     let usb_pin = usb.pin_id();
+    info!("usb bin: {}", usb_pin);
+    unsafe { GPIO_STATE_PTR = (*crate::hal::pac::GPIOB::ptr()).idr.as_ptr() as u32 };
+    info!("pin addr: {:x}", unsafe { GPIO_STATE_PTR });
+
+    // exit();
 
     let mut syscfg = dp.SYSCFG.constrain();
     usb.make_interrupt_source(&mut syscfg);
@@ -78,6 +84,7 @@ fn main() -> ! {
 
     let mut arrayarray: [[u32; ARRAY_LEN]; 10] = [[0u32; ARRAY_LEN]; 10];
     loop {
+        info!("hi");
         for a in &mut arrayarray {
             while !DONE
                 .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)

@@ -1,4 +1,4 @@
-use crate::{ARRAY, DONE};
+use crate::{ARRAY, DONE, GPIO_STATE_PTR};
 use core::arch::global_asm;
 
 // stm32f4 has minimum 12 cycle interrupt delay
@@ -29,9 +29,9 @@ global_asm! {
     ".cfi_startproc",
 
     // Set the pin state adress in r0
-    "movw r0, #1040",                            // 1 cycle
-    "movt r0, #16386",                           // 1 cycle
-                                                 
+    "movw r0, #:lower16:{GPIO_STATE_PTR}",       // 1 cycle
+    "movt r0, #:upper16:{GPIO_STATE_PTR}",       // 1 cycle
+
     // reads the pin state ASAP
     "ldr r1, [r0]",                              // 2 cycles
     // build the pointer to ARRAY in r2 so we can store it
@@ -45,7 +45,7 @@ global_asm! {
 
 
 
-    // store pin state in ARRAY[1] 
+    // store pin state in ARRAY[1]
     // and prepare to set interrupt pending to false
     "ldr r1, [r0]",                              // 2 cycles
     "str r1, [r2, #4]",                          // 2 cycles
@@ -77,7 +77,7 @@ global_asm! {
     "movt r3, :upper16:{DONE}",                  // 1 cycle
     "NOP",                                       // 1 cycle
     // = 28 cycles after first read
-                                                 
+
     // store pin state in ARRAY[4]
     // and finish setting data rdy boolean to true
     "ldr r1, [r0]",                              // 2 cycles
@@ -104,4 +104,7 @@ global_asm! {
 
     ARRAY = sym ARRAY,
     DONE = sym DONE,
+    GPIO_STATE_PTR = sym GPIO_STATE_PTR,
+    // PIN_STATE_TOP = const GPIO_STATE_TOP,
+    // PIN_STATE_LOWER = const GPIO_STATE_LOWER,
 }
