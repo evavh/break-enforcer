@@ -12,7 +12,7 @@ fn main() {
 }
 
 fn loop_assembly() -> String {
-    let sections: Vec<String> = (4..array_length())
+    let sections: Vec<String> = (5..array_length())
         .map(|i| i*size_of::<u32>())
         .map(|offset| {
             format!(
@@ -33,22 +33,21 @@ fn loop_assembly() -> String {
 }
 
 fn array_length() -> usize {
-    // let main = Path::new(env!("CARGO_MANIFEST_DIR"))
-    //     .join("src")
-    //     .join("main.rs");
-    // let main = fs::read_to_string(main).unwrap();
-    // let arr_start = main.find("ARRAY").expect("main missing static ARRAY");
-    // let semicolon = arr_start
-    //     + main[arr_start..]
-    //         .find(";")
-    //         .expect("ARRAY type missing ';'");
-    // let closingbr = semicolon
-    //     + main[semicolon..]
-    //         .find("]")
-    //         .expect("ARRAY type closing ']'");
-    // main[semicolon+1..closingbr].trim().parse().expect(
-    //     "build script needs ARRAY length should be a constant, \
-    //     if you need to access it a as a constant use: `unsafe{ ARRAY.len() }",
-    // )
-    6
+    let main = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("main.rs");
+    let main = fs::read_to_string(main).unwrap();
+    let arr_start = main.find("ARRAY").expect("main missing static ARRAY");
+    let semicolon = arr_start
+        + main[arr_start..]
+            .find(";")
+            .expect("ARRAY type missing ';'");
+    let closingbr = semicolon
+        + main[semicolon..]
+            .find("]")
+            .expect("ARRAY type closing ']'");
+    main[semicolon+1..closingbr].trim().parse().expect(
+        "build script needs ARRAY length should be a constant, \
+        if you need to access it a as a constant use: `unsafe{ ARRAY.len() }",
+    )
 }

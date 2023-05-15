@@ -89,33 +89,30 @@ fn main() -> ! {
             }
         }
 
-        info!("got arrayyyysss");
-
         for a in arrayarray {
-            let mut ones_and_zeros = ['0'; ARRAY_LEN];
             let package = Package::new(a, usb_pin as usize);
             info!("{}", package);
         }
     }
-    exit()
+    // exit()
 }
 
 enum Package {
     Long,
     Short,
-    Unknown { bytes: [u8; 240] },
+    Unknown { bytes: [u8; ARRAY_LEN] },
 }
 
 impl Package {
-    fn new(bytes: [u32; 240], usb_pin: usize) -> Package {
+    fn new(bytes: [u32; ARRAY_LEN], usb_pin: usize) -> Package {
         let bytes = bytes.map(|port| port & (1 << usb_pin)).map(|b| b as u8);
 
-        if bytes == package::LONG {
-            return Self::Long;
-        }
-        if bytes == package::SHORT {
-            return Self::Short;
-        }
+        // if bytes == package::LONG {
+        //     return Self::Long;
+        // }
+        // if bytes == package::SHORT {
+        //     return Self::Short;
+        // }
         Package::Unknown { bytes }
     }
 }

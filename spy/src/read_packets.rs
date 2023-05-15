@@ -88,12 +88,12 @@ global_asm! {
     // = 35 cycles after first read
 
 
-    // Store gpio value in ARRAY (repeat N-5 times) 
+    // Store gpio value in ARRAY (repeat N-5 times)
     // Because:
     //  - the first read is combined with setting up the array pointer
     //  - the second+third read is combined with setting the interrupt as handled
     //  - the fourth+fifth read sets the new data bool to true
-    // include_str!(concat!(env!("OUT_DIR"), "/loop.s")),
+    include_str!(concat!(env!("OUT_DIR"), "/loop.s")),
 
     // return out of the interrupt
     "bx lr",                                     // 1 cycle minimum
