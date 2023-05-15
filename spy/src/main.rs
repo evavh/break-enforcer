@@ -36,8 +36,8 @@ pub fn exit() -> ! {
     }
 }
 
+static mut ARRAY: [u32; 240] = [0u32; 240];
 const ARRAY_LEN: usize = 240;
-static mut ARRAY: [u32; ARRAY_LEN] = [0u32; ARRAY_LEN];
 static DONE: AtomicBool = AtomicBool::new(false);
 
 #[entry]
@@ -76,7 +76,7 @@ fn main() -> ! {
         cortex_m::peripheral::NVIC::unmask(interrupt_number);
     }
 
-    let mut arrayarray: [[u32; 240]; 10] = [[0u32; 240]; 10];
+    let mut arrayarray: [[u32; ARRAY_LEN]; 10] = [[0u32; ARRAY_LEN]; 10];
     loop {
         for a in &mut arrayarray {
             while !DONE
@@ -92,7 +92,7 @@ fn main() -> ! {
         info!("got arrayyyysss");
 
         for a in arrayarray {
-            let mut ones_and_zeros = ['0'; 240];
+            let mut ones_and_zeros = ['0'; ARRAY_LEN];
             let package = Package::new(a, usb_pin as usize);
             info!("{}", package);
         }

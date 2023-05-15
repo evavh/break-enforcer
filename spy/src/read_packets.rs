@@ -93,14 +93,7 @@ global_asm! {
     //  - the first read is combined with setting up the array pointer
     //  - the second+third read is combined with setting the interrupt as handled
     //  - the fourth+fifth read sets the new data bool to true
-    // load the current value of the pin into r1
-    "ldr r1, [r0]",                              // 2 cycles
-    // store r1 in ARRAY[1]
-    "str r1, [r2, #20]",                         // 2 cycles
-    "NOP",                                       // 1 cycle
-    "NOP",                                       // 1 cycle
-    "NOP",                                       // 1 cycle
-    // = n*7 cycles after first read
+    // include_str!(concat!(env!("OUT_DIR"), "/loop.s")),
 
     // return out of the interrupt
     "bx lr",                                     // 1 cycle minimum
