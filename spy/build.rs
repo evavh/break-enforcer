@@ -12,8 +12,8 @@ fn main() {
 }
 
 fn loop_assembly() -> String {
-    let sections: Vec<String> = (5..array_length())
-        .map(|i| i*size_of::<u32>())
+    let sections: Vec<String> = (5..array_length() / 2)
+        .map(|i| i * size_of::<u32>())
         .map(|offset| {
             format!(
                 "//load the current value of the pin into r1
@@ -37,17 +37,14 @@ fn array_length() -> usize {
         .join("src")
         .join("main.rs");
     let main = fs::read_to_string(main).unwrap();
-    let arr_start = main.find("ARRAY").expect("main missing static ARRAY");
-    let semicolon = arr_start
-        + main[arr_start..]
+    let arr_start = main.find("ARRAY_LEN").expect("main missing static ARRAY");
+    let equals = arr_start + main[arr_start..].find("=").expect("ARRAY_LEN missing '='");
+    let semicolon = equals
+        + main[equals..]
             .find(";")
-            .expect("ARRAY type missing ';'");
-    let closingbr = semicolon
-        + main[semicolon..]
-            .find("]")
-            .expect("ARRAY type closing ']'");
-    main[semicolon+1..closingbr].trim().parse().expect(
-        "build script needs ARRAY length should be a constant, \
-        if you need to access it a as a constant use: `unsafe{ ARRAY.len() }",
-    )
+            .expect("ARRAY_LEN not ending with ';'");
+    main[equals + 1..semicolon]
+        .trim()
+        .parse()
+        .expect("build script needs ARRAY_LEN constant")
 }

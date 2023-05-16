@@ -21,6 +21,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use cortex_m_rt::entry;
 
 mod read_packets;
+use read_packets::{ARRAY1, ARRAY2, ARRAY_OFFSET};
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message
 // this prevents the panic message being printed *twice* when `defmt::panic` is invoked
@@ -36,9 +37,11 @@ pub fn exit() -> ! {
     }
 }
 
-static mut GPIO_STATE_PTR: u32 = 0;
-static mut ARRAY: [u32; 180] = [5u32; 180];
+// is transformed into immediate in assembly
+static mut GPIO_STATE_PTR: *const u32 = 40020410 as *const u32;
 const ARRAY_LEN: usize = 180;
+static mut ARRAY: [u32; ARRAY_LEN] = [5u32; ARRAY_LEN];
+
 static DONE: AtomicBool = AtomicBool::new(false);
 
 #[entry]
@@ -66,15 +69,22 @@ fn main() -> ! {
     info!("usb bin: {}", usb_pin);
     // get adress of GPIOB's IDR (input data) register. Accessed as 32 bit
     // word, however only the lower 16 bit represent pin values
-    unsafe { GPIO_STATE_PTR = (*crate::hal::pac::GPIOB::ptr()).idr.as_ptr() as u32 };
+    unsafe { GPIO_STATE_PTR = (*crate::hal::pac::GPIOB::ptr()).idr.as_ptr() };
     info!("pin addr: {:x}", unsafe { GPIO_STATE_PTR });
+
+    unsafe {
+        info!(
+            "ARRAY 1: {}, ARRAY 2: {}, ARRAY_OFFSET: {}",
+            ARRAY1, ARRAY2, ARRAY_OFFSET
+        )
+    };
 
     // exit();
 
     let mut syscfg = dp.SYSCFG.constrain();
     usb.make_interrupt_source(&mut syscfg);
     usb.enable_interrupt(&mut dp.EXTI);
-    usb.trigger_on_edge(&mut dp.EXTI, gpio::Edge::Falling);
+    usb.trigger_on_edge(&mut dp.EXTI, gpio::Edge::Rising);
     let interrupt_number = usb.interrupt();
 
     // clear pending interrupts on usb gpio
@@ -99,6 +109,9 @@ fn main() -> ! {
             }
 
             unsafe {
+                info!("array: {}", ARRAY);
+            }
+            unsafe {
                 *a = ARRAY.clone();
             }
         }
@@ -119,8 +132,11 @@ enum Package {
 
 impl Package {
     fn new(bytes: [u32; ARRAY_LEN], usb_pin: usize) -> Package {
-        info!("bytes: {}", bytes);
-        let bytes = bytes.map(|port| port & (1 << usb_pin)).map(|b| b as u8);
+        // info!("bytes: {}", bytes);
+        let bytes = bytes
+            .map(|port| port & (1 << usb_pin))
+            .map(|p| p >> usb_pin) // shift back so 0 or 2 becomes 0 or 1
+            .map(|b| b as u8);
 
         // if bytes == package::LONG {
         //     return Self::Long;
@@ -143,7 +159,7 @@ impl defmt::Format for Package {
                     match *b {
                         0 => defmt::write!(fmt, "0"),
                         1 => defmt::write!(fmt, "1"),
-                        _ => defmt::write!(fmt, "*"),
+                        other => defmt::write!(fmt, "{}", other),
                     }
                 }
                 defmt::write!(fmt, "]\n");
