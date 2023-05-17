@@ -28,6 +28,7 @@ global_asm! {
     ".fnstart",
     ".cfi_startproc",
 
+    // 12 cycles past interrupt source
 
     // // Set the pin state adress in r0
     // "movw r0, #:lower16:{GPIO_STATE_PTR}",       // 1 cycle
@@ -35,7 +36,11 @@ global_asm! {
     "movw r0, #1040",
     "movt r0, #16386",
 
+    // add nops so we read in the center of the usb clock
+    "NOP", // 1 cycle
     // reads the pin state ASAP
+    // this is cycle 17 past interrupt source
+    // that means 17/7 ~= 2.5
     "ldr r1, [r0]",                              // 2 cycles
 
     // // disable all interrupts
