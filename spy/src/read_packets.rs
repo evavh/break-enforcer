@@ -67,11 +67,11 @@ global_asm! {
     // set interrupt pending to 2/confirm handled
     "ldr r1, [r0]",                              // 2 cycles
     "str r1, [r2, #8]",                          // 2 cycles
-    // set 2nd (r4) irq_handled bit (at r3) to true
-    // TODO: still needed? we do this at the end now 
+    // set 2nd (r12) irq_handled bit (at r3) to true
+    // TODO: still needed? we do this at the end now
     // <16-05-23, dvdsk noreply@davidsk.dev>
-    "movs r4, #2",                               // 1 cycle
-    "str r4, [r3]",                              // 2 cycles
+    "movs r12, #2",                               // 1 cycle
+    "str r12, [r3]",                              // 2 cycles
     // = 21 cycles after first read
 
 
@@ -89,9 +89,9 @@ global_asm! {
     // and finish setting data rdy boolean to true
     "ldr r1, [r0]",                              // 2 cycles
     "str r1, [r2, #16]",                         // 2 cycles
-    // set DONE (r3) to 1 (r4)
-    "mov r4, #1",                                // 1 cycle
-    "strb r4, [r3]",                             // 2 cycles
+    // set DONE (r3) to 1 (r12)
+    "mov r12, #1",                                // 1 cycle
+    "strb r12, [r3]",                             // 2 cycles
     // = 35 cycles after first read
 
 
@@ -108,11 +108,11 @@ global_asm! {
     // mark interrupt as no longer pending
     "movw r3, #15380",                           // 1 cycle
     "movt r3, #16385",                           // 1 cycle
-    "movs r4, #2",                               // 1 cycle
-    "str r4, [r3]",                              // 2 cycles
+    "movs r12, #2",                               // 1 cycle
+    "str r12, [r3]",                              // 2 cycles
 
-    "movw r1, :lower16:{ARRAY1}",            // 1 cycle
-    "movt r1, :upper16:{ARRAY1}",            // 1 cycle
+    "movw r1, :lower16:{ARRAY1}",                // 1 cycle
+    "movt r1, :upper16:{ARRAY1}",                // 1 cycle
     "movw r3, :lower16:{ARRAY_OFFSET}",          // 1 cycle
     "movt r3, :upper16:{ARRAY_OFFSET}",          // 1 cycle
     // check if ARRAY_OFFSET == ARRAY1
@@ -122,7 +122,7 @@ global_asm! {
     "movw r1, :lower16:{ARRAY2}",
     "movt r1, :upper16:{ARRAY2}",
     // store mem adress of array2 in array_offset
-    "str r4, [r2]",
+    "str r1, [r3]",
     // return out of the interrupt
     "bx lr",                                     // 1 cycle minimum
 
