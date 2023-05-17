@@ -54,7 +54,7 @@ static DONE: AtomicBool = AtomicBool::new(false);
 
 #[entry]
 fn main() -> ! {
-    // assert_no_duplicate_patterns();
+    assert_no_duplicate_patterns();
 
     let mut dp = Peripherals::take().unwrap();
     let rcc = dp.RCC.constrain();
@@ -97,7 +97,7 @@ fn main() -> ! {
         cortex_m::peripheral::NVIC::unmask(interrupt_number);
     }
 
-    let mut counter = 0;
+    // let mut counter = 0;
     let mut arrayarray: [[u32; ARRAY_LEN]; 15] = [[0u32; ARRAY_LEN]; 15];
     loop {
         for a in &mut arrayarray {
@@ -105,10 +105,10 @@ fn main() -> ! {
                 .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
                 .is_ok()
             {
-                counter += 1;
-                if counter % 4000 == 0 {
-                    trace!("waiting for interrupt");
-                }
+                // counter += 1;
+                // if counter % 4000 == 0 {
+                //     trace!("waiting for interrupt");
+                // }
             }
 
             unsafe {
@@ -119,34 +119,22 @@ fn main() -> ! {
 
         for a in arrayarray {
             let package = Package::new(a, usb_pin as usize);
-            info!("{}", package);
+            if let Package::Unknown { meta, .. } = package {
+                info!("{}", meta);
+            }
         }
     }
     // exit()
 }
 
-enum Package {
-    Known(char),
-    Unknown {
-        ones: usize,
-        len: Option<usize>,
-        msg: [u8; ARRAY_LEN],
-    },
+#[derive(defmt::Format, Clone)]
+struct Meta {
+    ones: usize,
+    len: Option<usize>,
 }
 
-impl Package {
-    fn new(port_bytes: [u32; ARRAY_LEN], usb_pin: usize) -> Package {
-        let msg = port_bytes
-            .map(|port| port >> usb_pin) // shift back so 0 or 2 becomes 0 or 1
-            .map(|port| port & 1) // everything non 1 becomes zero
-            .map(|b| b as u8);
-
-        // for (letter, data) in KNOWN {
-        //     if data == msg {
-        //         return Package::Known(letter);
-        //     }
-        // }
-
+impl Meta {
+    fn from_msg(msg: &[u8]) -> Self {
         let mut len = None;
         for (i, b) in msg.iter().enumerate().rev() {
             if *b == 0 {
@@ -160,7 +148,41 @@ impl Package {
             .map(|b| *b as usize)
             .sum();
 
-        Package::Unknown { len, ones, msg }
+        Self { len, ones }
+    }
+
+    fn distance(&self, other: &Self) -> usize {
+        let (Some(self_len), Some(other_len)) = (self.len, other.len) else {
+            return 1000;
+        };
+        self.ones.abs_diff(other.ones) + self_len.abs_diff(other_len)
+    }
+
+    fn similar_to(&self, other: &Self) -> bool {
+        self.distance(other) < 5
+    }
+}
+
+enum Package {
+    Known(usize),
+    Unknown { meta: Meta, msg: [u8; ARRAY_LEN] },
+}
+
+impl Package {
+    fn new(port_bytes: [u32; ARRAY_LEN], usb_pin: usize) -> Package {
+        let msg = port_bytes
+            .map(|port| port >> usb_pin) // shift back so 0 or 2 becomes 0 or 1
+            .map(|port| port & 1) // everything non 1 becomes zero
+            .map(|b| b as u8);
+
+        let meta = Meta::from_msg(&msg);
+        for (idx, pattern) in KNOWN.iter().enumerate() {
+            if meta.similar_to(&pattern) {
+                return Package::Known(idx);
+            }
+        }
+
+        Package::Unknown { meta, msg }
     }
 }
 
@@ -168,8 +190,8 @@ impl defmt::Format for Package {
     fn format(&self, fmt: defmt::Formatter) {
         match self {
             Package::Known(c) => defmt::write!(fmt, "Known: {}", c),
-            Package::Unknown { msg, ones, len } => {
-                defmt::write!(fmt, "Unknown (len: {}, ones: {}), bytes: [", len, ones);
+            Package::Unknown { meta, msg } => {
+                defmt::write!(fmt, "Unknown (meta: {}), bytes: [", meta);
                 // for b in msg {
                 //     match *b {
                 //         0 => defmt::write!(fmt, "0"),
@@ -183,40 +205,76 @@ impl defmt::Format for Package {
     }
 }
 
-// #[rustfmt::skip]
-// pub const KNOWN: [(char, [u8; 180]); 7] = [
-//     ('A', [
-// 1,0,1,1,0,0,1,1,0,0,0,0,0,0,1,1,1,1,1,0,1,0,1,1,1,1,0,0,0,1,1,1,1,1,1,0,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-//     ]),
-//     ('B', [
-// 0,0,1,0,0,0,1,1,1,1,1,1,0,1,0,0,0,1,0,1,0,1,1,0,1,0,0,0,1,0,1,0,1,1,1,1,1,1,0,0,1,1,1,0,1,1,1,0,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,0,1,0,0,1,0,0,1,0,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,0,1,0,0,1,0,0,1,0,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,0,1,0,0,1,0,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,0,1,0,0,1,0,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,0,1,0,0,1,0,0,1,1,0,1,1,0,
-//     ]),
-//     ('C', [
-// 0,0,0,1,1,0,1,1,1,1,1,0,1,0,1,0,0,0,0,1,1,0,1,1,0,0,1,0,1,1,0,1,0,1,0,1,0,0,1,0,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,0,1,0,0,1,0,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,0,1,0,0,1,0,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,0,1,0,0,1,0,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,0,1,0,0,1,0,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,0,1,0,0,1,0,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,
-//     ]),
-//     ('D', [
-// 1,0,1,1,0,1,1,1,0,0,0,1,0,0,1,1,1,1,0,0,1,0,1,1,1,1,0,0,0,1,1,1,1,1,1,0,1,1,0,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-//     ]),
-//     ('E', [
-//      1,0,1,1,0,1,1,1,0,0,0,1,0,0,1,1,1,0,0,0,1,0,1,1,1,1,0,0,0,1,1,1,1,1,1,0,1,1,0,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-//     ]),
-//     ('F', [
-// 0,0,1,0,0,0,1,1,1,1,1,0,1,0,1,0,0,0,0,1,1,0,1,1,0,0,1,1,1,1,0,1,0,0,0,1,0,0,1,1,0,0,0,1,0,0,1,1,1,0,1,1,0,1,1,0,0,1,0,0,1,0,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,0,1,0,0,1,0,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,0,1,0,0,1,0,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,0,1,0,0,1,0,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,0,1,0,0,1,0,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,
-//     ]),
-//     ('G', [
-// 1,0,1,1,0,1,1,1,0,0,0,1,0,0,1,1,1,0,0,0,1,0,1,1,1,1,0,0,0,1,1,1,1,1,1,0,1,1,0,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-//     ]),
-// ];
-//
-// fn assert_no_duplicate_patterns() {
-//     let mut pats = KNOWN;
-//     let (_, dups) = pats.partition_dedup_by_key(|(name, pattern)| pattern.clone());
-//
-//     for dup in dups.iter() {
-//         info!("duplicate pattern: {}", dup.0);
-//     }
-//
-//     if !dups.is_empty() {
-//         exit();
-//     }
-// }
+#[rustfmt::skip]
+const KNOWN: [Meta; 52] = [
+	Meta { ones: 135, len: Some(240) },
+	Meta { ones: 39, len: Some(69) },
+	Meta { ones: 44, len: Some(69) },
+	Meta { ones: 204, len: Some(235) },
+	Meta { ones: 140, len: Some(253) },
+	Meta { ones: 44, len: Some(69) },
+	Meta { ones: 207, len: Some(234) },
+	Meta { ones: 148, len: Some(251) },
+	Meta { ones: 43, len: Some(68) },
+	Meta { ones: 203, len: Some(235) },
+	Meta { ones: 41, len: Some(69) },
+	Meta { ones: 155, len: Some(253) },
+	Meta { ones: 203, len: Some(235) },
+	Meta { ones: 142, len: Some(253) },
+	Meta { ones: 204, len: Some(235) },
+	Meta { ones: 146, len: Some(253) },
+	Meta { ones: 45, len: Some(69) },
+	Meta { ones: 206, len: Some(235) },
+	Meta { ones: 142, len: Some(253) },
+	Meta { ones: 40, len: Some(69) },
+	Meta { ones: 207, len: Some(235) },
+	Meta { ones: 142, len: Some(253) },
+	Meta { ones: 35, len: Some(53) },
+	Meta { ones: 37, len: Some(69) },
+	Meta { ones: 202, len: Some(234) },
+	Meta { ones: 42, len: Some(69) },
+	Meta { ones: 140, len: Some(253) },
+	Meta { ones: 202, len: Some(235) },
+	Meta { ones: 153, len: Some(253) },
+	Meta { ones: 205, len: Some(235) },
+	Meta { ones: 147, len: Some(253) },
+	Meta { ones: 39, len: Some(69) },
+	Meta { ones: 44, len: Some(69) },
+	Meta { ones: 200, len: Some(235) },
+	Meta { ones: 141, len: Some(253) },
+	Meta { ones: 43, len: Some(69) },
+	Meta { ones: 37, len: Some(69) },
+	Meta { ones: 206, len: Some(234) },
+	Meta { ones: 141, len: Some(251) },
+	Meta { ones: 45, len: Some(69) },
+    Meta { ones: 197, len: Some(233) },
+    Meta { ones: 156, len: Some(257) },
+    Meta { ones: 74, len: Some(90) },
+    Meta { ones: 15, len: Some(26) },
+    Meta { ones: 360, len: None },
+    Meta { ones: 134, len: Some(154) },
+    Meta { ones: 100, len: Some(120) },
+    Meta { ones: 30, len: Some(47) },
+    Meta { ones: 137, len: Some(158) },
+    Meta { ones: 136, len: Some(251) },
+    Meta { ones: 159, len: Some(252) },
+    Meta { ones: 213, len: Some(235) },
+];
+
+fn assert_no_duplicate_patterns() {
+    let mut i = 0;
+    let mut pats = KNOWN.map(|m| {
+        i += 1;
+        (i, m)
+    });
+
+    let (_, dups) = pats.partition_dedup_by(|(_, pa), (_, pb)| pa.similar_to(pb));
+
+    for dup in dups.iter() {
+        info!("duplicate pattern: {} (starts at 1), {}", dup.0, dup.1);
+    }
+
+    if !dups.is_empty() {
+        exit();
+    }
+}
