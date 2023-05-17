@@ -1,4 +1,4 @@
-use crate::{ARRAY, ARRAY_LEN, DONE, GPIO_STATE_PTR};
+use crate::{ARRAY2, ARRAY1, ARRAY_LEN, DONE, GPIO_STATE_PTR};
 use core::arch::global_asm;
 
 // stm32f4 has minimum 12 cycle interrupt delay
@@ -147,6 +147,4 @@ global_asm! {
     // GPIO_STATE_PTR = sym GPIO_STATE_PTR,
 }
 
-pub static mut ARRAY1: *const u32 = unsafe { ARRAY.as_ptr() };
-pub static mut ARRAY2: *const u32 = unsafe { ARRAY.as_ptr().add(ARRAY_LEN / 2) };
-pub static mut ARRAY_OFFSET: *const u32 = unsafe { ARRAY1 };
+pub static mut ARRAY_OFFSET: *const u32 = unsafe { ARRAY1.as_ptr() };

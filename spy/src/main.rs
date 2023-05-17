@@ -1,5 +1,7 @@
 #![no_main]
 #![no_std]
+#![feature(ptr_sub_ptr)]
+#![feature(array_zip)]
 
 use defmt::{info, trace};
 use defmt_rtt as _;
@@ -17,11 +19,14 @@ use panic_probe as _;
 
 use crate::hal::prelude::_stm32f4xx_hal_gpio_ExtiPin;
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::{
+    slice,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use cortex_m_rt::entry;
 
 mod read_packets;
-use read_packets::{ARRAY1, ARRAY2, ARRAY_OFFSET};
+use read_packets::ARRAY_OFFSET;
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message
 // this prevents the panic message being printed *twice* when `defmt::panic` is invoked
@@ -40,7 +45,9 @@ pub fn exit() -> ! {
 // is transformed into immediate in assembly
 static mut GPIO_STATE_PTR: *const u32 = 40020410 as *const u32;
 const ARRAY_LEN: usize = 180;
-static mut ARRAY: [u32; ARRAY_LEN] = [5u32; ARRAY_LEN];
+// *2 as there are two 'arrays' between which we alternate
+static mut ARRAY1: [u32; ARRAY_LEN] = [5u32; ARRAY_LEN];
+static mut ARRAY2: [u32; ARRAY_LEN] = [5u32; ARRAY_LEN];
 
 static DONE: AtomicBool = AtomicBool::new(false);
 
@@ -72,13 +79,6 @@ fn main() -> ! {
     unsafe { GPIO_STATE_PTR = (*crate::hal::pac::GPIOB::ptr()).idr.as_ptr() };
     info!("pin addr: {:x}", unsafe { GPIO_STATE_PTR });
 
-    unsafe {
-        info!(
-            "ARRAY 1: {}, ARRAY 2: {}, ARRAY_OFFSET: {}",
-            ARRAY1, ARRAY2, ARRAY_OFFSET
-        )
-    };
-
     // exit();
 
     let mut syscfg = dp.SYSCFG.constrain();
@@ -109,10 +109,8 @@ fn main() -> ! {
             }
 
             unsafe {
-                info!("array: {}", ARRAY);
-            }
-            unsafe {
-                *a = ARRAY.clone();
+                let array = slice::from_raw_parts(ARRAY_OFFSET, ARRAY_LEN);
+                a.clone_from_slice(array)
             }
         }
 
