@@ -3,12 +3,13 @@
 #![feature(ptr_sub_ptr)]
 #![feature(array_zip)]
 #![feature(slice_partition_dedup)]
+#![feature(asm_const)]
 
 use defmt::{info, trace};
 use defmt_rtt as _;
 use fugit::RateExtU32;
 use hal::{
-    gpio::{self, PinExt},
+    gpio::{self, PinExt, PinSpeed},
     pac::Peripherals,
     prelude::_stm32f4xx_hal_gpio_GpioExt,
     rcc::RccExt,
@@ -44,7 +45,6 @@ pub fn exit() -> ! {
 }
 
 // is transformed into immediate in assembly
-static mut GPIO_STATE_PTR: *const u32 = 40020410 as *const u32;
 const ARRAY_LEN: usize = 360;
 // *2 as there are two 'arrays' between which we alternate
 static mut ARRAY1: [u32; ARRAY_LEN] = [5u32; ARRAY_LEN];
@@ -52,35 +52,86 @@ static mut ARRAY2: [u32; ARRAY_LEN] = [5u32; ARRAY_LEN];
 
 static DONE: AtomicBool = AtomicBool::new(false);
 
+use hal::pac::interrupt;
+#[interrupt]
+fn EXTI2() {
+    // unsafe {
+    //     (*hal::pac::GPIOA::ptr()).odr.write(|w| w.odr0().set_bit());
+    // };
+    let dp = unsafe { Peripherals::steal() };
+    let gpio_a = dp.GPIOA.split();
+    let mut debug_pin = gpio_a.pa0.into_push_pull_output();
+    loop {
+        debug_pin.set_high();
+        debug_pin.set_low();
+    }
+}
+
 #[entry]
 fn main() -> ! {
     assert_no_duplicate_patterns();
 
     let mut dp = Peripherals::take().unwrap();
     let rcc = dp.RCC.constrain();
-    let _clocks = rcc
+    let clocks = rcc
         .cfgr
+        .use_hse(25.MHz())
         .sysclk(84.MHz())
-        .use_hse(84.MHz())
         .hclk(84.MHz()) // also called AHB clock
-        // APB2 clock; data on I/O pin is sampled into
-        // this every APB2 clock cycle
+        // // APB2 clock; data on I/O pin is sampled into
+        // // this every APB2 clock cycle
+        .pclk1(42.MHz()) // source: https://stm32f4-discovery.net/2015/01/properly-set-clock-speed-stm32f4xx-devices/
         .pclk2(84.MHz())
         .freeze();
+
+    info!("{:?}", clocks);
 
     // set power on usb (prototype needs this)
     let gpio_c = dp.GPIOC.split();
     let mut usb_enable = gpio_c.pc13.into_push_pull_output();
     usb_enable.set_high();
 
+    // set debug pin (pa0) to fast output
+    let gpio_a = dp.GPIOA.split();
+    let mut debug_pin = gpio_a.pa0.into_push_pull_output();
+    debug_pin.set_speed(gpio::Speed::VeryHigh);
+    debug_pin.set_low();
+
+    // this loop gets us 12-24 MHZ (mostly 12) which is lower 
+    // then expected.....
+    // since between each store (=toggle) there are 2 cycles
+    // 24 MHZ means the clock runs at 48 MHZ
+    // it does: 
+    //   str r4 [r0] // 2 cycles
+    //   str r1 [r0] // 2 cycles
+    //   repeat ..
+    // loop {
+    //     debug_pin.set_high();
+    //     debug_pin.set_low();
+    // }
+
+    unsafe {
+        // output the high speed external clock on PA8
+        (*hal::pac::RCC::ptr()).cfgr.write(|w| w.mco1().pll());
+        (*hal::pac::RCC::ptr()).cfgr.write(|w| w.mco1pre().div5());
+    }
+    // set clock out pin to alternate function 0
+    let _ = gpio_a.pa8.into_alternate::<0>();
+
     let gpio_b = dp.GPIOB.split();
     let mut usb = gpio_b.pb1.into_floating_input();
     let usb_pin = usb.pin_id();
-    info!("usb bin: {}", usb_pin);
+
+    info!("usb pin: pb{}", usb_pin);
     // get adress of GPIOB's IDR (input data) register. Accessed as 32 bit
     // word, however only the lower 16 bit represent pin values
-    unsafe { GPIO_STATE_PTR = (*crate::hal::pac::GPIOB::ptr()).idr.as_ptr() };
-    info!("pin addr: {:x}", unsafe { GPIO_STATE_PTR });
+    let usb_data_plus = unsafe { (*hal::pac::GPIOB::ptr()).idr.as_ptr() };
+    info!(
+        "usb data+ (pb{}) addr (PB in): {:x}",
+        usb_pin, usb_data_plus
+    );
+    let debug_out = unsafe { (*hal::pac::GPIOC::ptr()).odr.as_ptr() };
+    info!("debug out (pa0) addr (PC out): {:x}", debug_out);
 
     // exit();
 
