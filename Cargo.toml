@@ -16,9 +16,11 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 fugit = "0.3.6"
 
 [dependencies.stm32f4xx-hal]
-version = "0.16.0"
+# version = "0.16.0"
 features = ["stm32f401", "defmt"] # replace the model of your microcontroller here
                          # and add other required features
+git = "https://github.com/stm32-rs/stm32f4xx-hal"
+rev = "0e48d22e0726ad074bf00b2ef07bc02841305f90"
 
 [profile.release]
 lto = true

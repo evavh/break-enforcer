@@ -23,7 +23,7 @@ use crate::hal::prelude::_stm32f4xx_hal_gpio_ExtiPin;
 
 use cortex_m_rt::entry;
 
-mod read_packets;
+mod test_interrupt;
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message
 // this prevents the panic message being printed *twice* when `defmt::panic` is invoked
