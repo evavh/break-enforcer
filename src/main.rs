@@ -5,165 +5,114 @@
 #![feature(slice_partition_dedup)]
 #![feature(asm_const)]
 
+use cortex_m::asm::delay;
 use defmt::info;
 use defmt_rtt as _;
-use fugit::RateExtU32;
-use hal::{
-    gpio::{self, PinExt},
-    pac::Peripherals,
-    prelude::_stm32f4xx_hal_gpio_GpioExt,
-    rcc::RccExt,
-    syscfg::SysCfgExt,
-};
+// use fugit::RateExtU32;
+use hal::pac;
 use stm32f4xx_hal as hal;
 // global logger
 use panic_probe as _;
 
-use crate::hal::prelude::_stm32f4xx_hal_gpio_ExtiPin;
-
-use cortex_m_rt::entry;
+// use cortex_m_rt::entry;
 
 mod test_interrupt;
 
-// same panicking *behavior* as `panic-probe` but doesn't print a panic message
-// this prevents the panic message being printed *twice* when `defmt::panic` is invoked
-#[defmt::panic_handler]
-fn panic() -> ! {
-    cortex_m::asm::udf()
-}
+// Imports
+use cortex_m_rt::entry;
 
-/// Terminates the application and makes `probe-run` exit with exit-code = 0
-pub fn exit() -> ! {
-    loop {
-        cortex_m::asm::bkpt();
-    }
-}
+// based on: https://controllerstech.com/stm32-clock-setup-using-registers/
+// https://kleinembedded.com/stm32-without-cubeide-part-2-cmsis-make-and-clock-configuration/
 
 #[entry]
 fn main() -> ! {
-    let mut dp = Peripherals::take().unwrap();
-    let rcc = dp.RCC.constrain();
-    let clocks = rcc
-        .cfgr
-        .use_hse(25.MHz())
-        .sysclk(84.MHz())
-        // .hclk(84.MHz()) // also called AHB clock
-        // // // APB2 clock; data on I/O pin is sampled into
-        // // // this every APB2 clock cycle
-        // .pclk1(42.MHz()) // source: https://stm32f4-discovery.net/2015/01/properly-set-clock-speed-stm32f4xx-devices/
-        // .pclk2(84.MHz())
-        .freeze();
+    // Setup handler for device peripherals
+    let dp = pac::Peripherals::take().unwrap();
 
-    info!("{:?}", clocks);
+    // Enable HSE Clock
+    dp.RCC.cr.write(|w| w.hseon().set_bit());
 
+    // Wait for HSE clock to become ready
+    while dp.RCC.cr.read().hserdy().is_ready() {}
+
+    // Set the power enable clock and voltage regulator
+    dp.RCC.apb1enr.write(|w| w.pwren().enabled());
+    delay(10);
+    // Regulator voltage scaling output selection,
+    // needed for high clock speed
+    // need to turn pll off first
+    dp.RCC.cr.write(|w| w.pllon().off());
+    // wait for pll to be off
+
+    info!("waiting for pll to turn off");
+    while !dp.RCC.cr.read().pllrdy().is_not_ready() {}
+
+    const SCALE_TWO: u8 = 0b10;
     unsafe {
-        info!(
-            "plln: {:b}", // Main PLL (PLL) multiplication factor for VCO
-            (*hal::pac::RCC::ptr()).pllcfgr.read().plln().bits()
-        );
-        info!(
-            "pllp {:b}",
-            (*hal::pac::RCC::ptr()).pllcfgr.read().pllp().bits()
-        );
-        info!(
-            "pllm {:b}",
-            (*hal::pac::RCC::ptr()).pllcfgr.read().pllm().bits()
-        );
-        info!(
-            "pllq {:b}",
-            (*hal::pac::RCC::ptr()).pllcfgr.read().pllq().bits()
-        );
-        info!(
-            "pllsrc is hse {}",
-            (*hal::pac::RCC::ptr()).pllcfgr.read().pllsrc().is_hse()
-        );
-
-        info!(
-            "PLL on: {}",
-            (*hal::pac::RCC::ptr()).cr.read().pllon().is_on()
-        );
-        info!(
-            "system clock is pll: {}",
-            (*hal::pac::RCC::ptr()).cfgr.read().sw().is_pll()
-        );
-        info!(
-            "AHB prescaler hclock {:b}",
-            (*hal::pac::RCC::ptr()).cfgr.read().hpre().bits()
-        );
+        dp.PWR.cr.write(|w| w.vos().bits(SCALE_TWO));
     }
 
-    // set power on usb (prototype needs this)
-    let gpio_c = dp.GPIOC.split();
-    let mut usb_enable = gpio_c.pc13.into_push_pull_output();
-    usb_enable.set_high();
+    // wait for VOS to become ready
+    info!("waiting for voltage output selection to be ready");
+    while !dp.PWR.csr.read().vosrdy().bit_is_set() {}
 
-    // set debug pin (pa0) to fast output
-    let gpio_a = dp.GPIOA.split();
-    let mut debug_pin = gpio_a.pa0.into_push_pull_output();
-    debug_pin.set_speed(gpio::Speed::VeryHigh);
-    debug_pin.set_low();
+    // enable instruction cache, prefetch buffer
+    // data cache and set flash latency to 5 wait states
+    dp.FLASH.acr.write(|w| w.icen().set_bit());
+    dp.FLASH.acr.write(|w| w.prften().set_bit());
+    dp.FLASH.acr.write(|w| w.dcen().set_bit());
+    dp.FLASH.acr.write(|w| w.latency().ws5());
 
-    // this loop gets us 12-24 MHZ (mostly 12) which is lower
-    // then expected.....
-    // since between each store (=toggle) there are 2 cycles
-    // 24 MHZ means the clock runs at 48 MHZ
-    // it does:
-    //   str r4 [r0] // 2 cycles
-    //   str r1 [r0] // 2 cycles
-    //   repeat ..
-    // loop {
-    //     debug_pin.set_high();
-    //     debug_pin.set_low();
-    // }
+    // Configure bus prescalars
+    dp.RCC.cfgr.write(|w| w.hpre().div1()); // AHB prescalar
+    dp.RCC.cfgr.write(|w| unsafe { w.ppre1().bits(2) });
+    dp.RCC.cfgr.write(|w| unsafe { w.ppre2().bits(1) });
 
     unsafe {
-        // output the high speed external clock on PA8
-        // 3 MHZ at div5 = 15
-        // 4 MHZ at div4 = 16
-        // 4.8 Mhz at div3 = 15-ish
-        // 8 Mhz at div 2 = 16
-        //
-        // PLL
-        // 3 MHZ at div 5 = 15
-        // 4 MHZ at div 4 = 16
-        // 6 MHZ at div 3 = 18
-        // 8 MHZ at div 2 = 16
-        // 8 MHZ at div 1 = 16
-        (*hal::pac::RCC::ptr()).cfgr.write(|w| w.mco1().hse());
-        (*hal::pac::RCC::ptr()).cfgr.write(|w| w.mco1pre().div4());
+        dp.RCC.pllcfgr.write(|w| w.pllsrc().hse());
+
+        const PLLM: u8 = 25;
+        dp.RCC.pllcfgr.write(|w| w.pllm().bits(PLLM));
+
+        const PLLN: u16 = 168;
+        dp.RCC.pllcfgr.write(|w| w.plln().bits(PLLN));
+
+        const PLLP: u8 = 2;
+        dp.RCC.pllcfgr.write(|w| w.pllp().bits(PLLP));
     }
-    // set clock out pin to alternate function 0
-    let _ = gpio_a.pa8.into_alternate::<0>();
 
-    let gpio_b = dp.GPIOB.split();
-    let mut usb = gpio_b.pb1.into_floating_input();
-    let usb_pin = usb.pin_id();
+    dp.RCC.cr.write(|w| w.pllon().off());
 
-    info!("usb pin: pb{}", usb_pin);
-    // get adress of GPIOB's IDR (input data) register. Accessed as 32 bit
-    // word, however only the lower 16 bit represent pin values
-    let usb_data_plus = unsafe { (*hal::pac::GPIOB::ptr()).idr.as_ptr() };
-    info!(
-        "usb data+ (pb{}) addr (PB in): {:x}",
-        usb_pin, usb_data_plus
-    );
-    let debug_out = unsafe { (*hal::pac::GPIOC::ptr()).odr.as_ptr() };
-    info!("debug out (pa0) addr (PC out): {:x}", debug_out);
+    info!("waiting for PLL to become ready");
+    while !dp.RCC.cr.read().pllrdy().bit_is_set() {}
 
-    // exit();
+    // Select PLL as System Clock Source
+    dp.RCC.cfgr.write(|w| w.sw().pll());
 
-    let mut syscfg = dp.SYSCFG.constrain();
-    usb.make_interrupt_source(&mut syscfg);
-    usb.enable_interrupt(&mut dp.EXTI);
-    usb.trigger_on_edge(&mut dp.EXTI, gpio::Edge::Falling);
-    let interrupt_number = usb.interrupt();
+    info!("waiting for PLL to be selected as System Clock Source");
+    while !dp.RCC.cfgr.read().sws().is_pll() {}
 
-    // clear pending interrupts on usb gpio
-    cortex_m::peripheral::NVIC::unpend(interrupt_number);
-    unsafe {
-        // enable interrupt on usb gpio
-        cortex_m::peripheral::NVIC::unmask(interrupt_number);
-    }
+    // pll div5 measures 3.2Mhz (* 5 = 16 Mhz)
+    // hse div5 also measures 3.2Mhz (* 5 = 16 Mhz)
+
+    // enable MCO1 HSE output
+    dp.RCC.cfgr.write(|w| w.mco1().pll());
+    dp.RCC.cfgr.write(|w| w.mco1pre().div5());
+
+    //Enable Clock to GPIOA
+    dp.RCC.ahb1enr.write(|w| w.gpioaen().set_bit());
+
+    //Configure PA5 as Output
+    dp.GPIOA.moder.write(|w| w.moder8().output());
+    // dp.GPIOA.otyper.write(|w| w.ot8().push_pull());
+
+    // // Set PA5 Output to High signalling end of configuration
+    // dp.GPIOA.odr.write(|w| w.odr8().low());
+
+    dp.GPIOA.ospeedr.write(|w| w.ospeedr8().very_high_speed());
+    dp.GPIOA.moder.write(|w| w.moder8().alternate());
+    dp.GPIOA.afrh.write(|w| w.afrh8().af0());
+    info!("ready");
 
     loop {}
 }
