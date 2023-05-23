@@ -5,18 +5,28 @@
 #![feature(slice_partition_dedup)]
 #![feature(asm_const)]
 
+use core::arch::asm;
+
 use cortex_m::asm::delay;
-use defmt::info;
-use defmt_rtt as _;
+// use defmt::info;
+// use defmt_rtt as _;
 // use fugit::RateExtU32;
 use hal::pac;
 use stm32f4xx_hal as hal;
 // global logger
-use panic_probe as _;
+// use panic_probe as _;
 
 // use cortex_m_rt::entry;
 
-mod test_interrupt;
+// mod test_interrupt;
+
+
+use core::panic::PanicInfo;
+
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    loop {}
+}
 
 // Imports
 use cortex_m_rt::entry;
@@ -91,10 +101,10 @@ fn main() -> ! {
     unsafe {
         dp.PWR.cr.write(|w| w.vos().bits(SCALE_TWO));
     }
-    info!("waiting for voltage output selection to be ready");
+    // info!("waiting for voltage output selection to be ready");
     while dp.PWR.csr.read().vosrdy().bit_is_clear() {}
 
-    info!("waiting for PLL to become ready");
+    // info!("waiting for PLL to become ready");
     while dp.RCC.cr.read().pllrdy().is_not_ready() {}
 
     // Select PLL as System Clock Source
@@ -107,7 +117,7 @@ fn main() -> ! {
         });
     }
 
-    info!("waiting for PLL to be selected as System Clock Source");
+    // info!("waiting for PLL to be selected as System Clock Source");
     while !dp.RCC.cfgr.read().sws().is_pll() {}
 
     //Enable Clock to GPIOA for mco1 and debug pin
@@ -133,7 +143,7 @@ fn main() -> ! {
         });
     }
 
-    info!("ready");
+    // info!("ready");
 
     //Configure PA as Output
     dp.GPIOA.otyper.write(|w| w.ot0().push_pull());
@@ -141,7 +151,111 @@ fn main() -> ! {
 
     loop {
         dp.GPIOA.odr.write(|w| w.odr0().low());
-        delay(1000);
+        unsafe {
+            asm!{
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+                "NOP",
+            }
+        }
         dp.GPIOA.odr.write(|w| w.odr0().high());
     }
 }
