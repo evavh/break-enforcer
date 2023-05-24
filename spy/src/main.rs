@@ -5,12 +5,12 @@
 #![feature(slice_partition_dedup)]
 #![feature(asm_const)]
 
-use defmt::{info, trace};
+use defmt::info;
 use defmt_rtt as _;
 use fugit::RateExtU32;
 use hal::{
-    gpio::{self, PinExt, PinSpeed},
-    pac::Peripherals,
+    gpio::{self, PinExt},
+    pac::{Peripherals, CorePeripherals},
     prelude::_stm32f4xx_hal_gpio_GpioExt,
     rcc::RccExt,
     syscfg::SysCfgExt,
@@ -30,13 +30,6 @@ use cortex_m_rt::entry;
 mod read_packets;
 use read_packets::ARRAY_OFFSET;
 
-// same panicking *behavior* as `panic-probe` but doesn't print a panic message
-// this prevents the panic message being printed *twice* when `defmt::panic` is invoked
-#[defmt::panic_handler]
-fn panic() -> ! {
-    cortex_m::asm::udf()
-}
-
 /// Terminates the application and makes `probe-run` exit with exit-code = 0
 pub fn exit() -> ! {
     loop {
@@ -52,39 +45,14 @@ static mut ARRAY2: [u32; ARRAY_LEN] = [5u32; ARRAY_LEN];
 
 static DONE: AtomicBool = AtomicBool::new(false);
 
-use hal::pac::interrupt;
-#[interrupt]
-fn EXTI2() {
-    // unsafe {
-    //     (*hal::pac::GPIOA::ptr()).odr.write(|w| w.odr0().set_bit());
-    // };
-    let dp = unsafe { Peripherals::steal() };
-    let gpio_a = dp.GPIOA.split();
-    let mut debug_pin = gpio_a.pa0.into_push_pull_output();
-    loop {
-        debug_pin.set_high();
-        debug_pin.set_low();
-    }
-}
-
 #[entry]
 fn main() -> ! {
     assert_no_duplicate_patterns();
 
     let mut dp = Peripherals::take().unwrap();
+    let mut core = CorePeripherals::take().unwrap();
     let rcc = dp.RCC.constrain();
-    let clocks = rcc
-        .cfgr
-        .use_hse(25.MHz())
-        .sysclk(84.MHz())
-        .hclk(84.MHz()) // also called AHB clock
-        // // APB2 clock; data on I/O pin is sampled into
-        // // this every APB2 clock cycle
-        .pclk1(42.MHz()) // source: https://stm32f4-discovery.net/2015/01/properly-set-clock-speed-stm32f4xx-devices/
-        .pclk2(84.MHz())
-        .freeze();
-
-    info!("{:?}", clocks);
+    let _clocks = rcc.cfgr.use_hse(25.MHz()).sysclk(84.MHz()).freeze();
 
     // set power on usb (prototype needs this)
     let gpio_c = dp.GPIOC.split();
@@ -97,23 +65,12 @@ fn main() -> ! {
     debug_pin.set_speed(gpio::Speed::VeryHigh);
     debug_pin.set_low();
 
-    // this loop gets us 12-24 MHZ (mostly 12) which is lower 
-    // then expected.....
-    // since between each store (=toggle) there are 2 cycles
-    // 24 MHZ means the clock runs at 48 MHZ
-    // it does: 
-    //   str r4 [r0] // 2 cycles
-    //   str r1 [r0] // 2 cycles
-    //   repeat ..
-    // loop {
-    //     debug_pin.set_high();
-    //     debug_pin.set_low();
-    // }
-
     unsafe {
         // output the high speed external clock on PA8
-        (*hal::pac::RCC::ptr()).cfgr.write(|w| w.mco1().pll());
-        (*hal::pac::RCC::ptr()).cfgr.write(|w| w.mco1pre().div5());
+        hal::pac::Peripherals::steal().RCC.cfgr.modify(|_, w| {
+            w.mco1().pll();
+            w.mco1pre().div5()
+        });
     }
     // set clock out pin to alternate function 0
     let _ = gpio_a.pa8.into_alternate::<0>();
@@ -146,6 +103,7 @@ fn main() -> ! {
     unsafe {
         // enable interrupt on usb gpio
         cortex_m::peripheral::NVIC::unmask(interrupt_number);
+        core.NVIC.set_priority(usb.interrupt(), 0); // set highest prio
     }
 
     // let mut counter = 0;

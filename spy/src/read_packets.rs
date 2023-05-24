@@ -37,9 +37,9 @@ global_asm! {
     ".cfi_startproc",
 
     // start debug pulse
-    "movs r0, #20",
-    "movs r1, #1",
-    "movt r0, #16386",
+    "movs r0, #20",                                 // 1 cycle
+    "movs r1, #1",                                  // 1 cycle 
+    "movt r0, #16386",                              // 1 cycle
     "str r1, [r0]",                                 // 2 cycles
     
     // 100 nops
