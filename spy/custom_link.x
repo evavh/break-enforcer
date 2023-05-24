@@ -1,6 +1,8 @@
 /* # Dev Note: 
 - this has been copied from target/.../cortex-m-rt-.../out/link.x
 - that is needed the linker script might miss device specific sections probably added by the hal or pac?
+
+	https://sourceware.org/binutils/docs/ld/Basic-Script-Concepts.html
 */
 
 /* # Developer notes
@@ -68,34 +70,8 @@ SECTIONS
   PROVIDE(_stack_start = ORIGIN(RAM) + LENGTH(RAM));
 
   /* ## Sections in FLASH */
-  /* ### Vector table */
-  .vector_table ORIGIN(FLASH) :
-  {
-    __vector_table = .;
-
-    /* Initial Stack Pointer (SP) value.
-     * We mask the bottom three bits to force 8-byte alignment.
-     * Despite having an assert for this later, it's possible that a separate
-     * linker script could override _stack_start after the assert is checked.
-     */
-    LONG(_stack_start & 0xFFFFFFF8);
-
-    /* Reset vector */
-    KEEP(*(.vector_table.reset_vector)); /* this is the `__RESET_VECTOR` symbol */
-    __reset_vector = .;
-
-    /* Exceptions */
-    KEEP(*(.vector_table.exceptions)); /* this is the `__EXCEPTIONS` symbol */
-    __eexceptions = .;
-
-    /* Device specific interrupts */
-    KEEP(*(.vector_table.interrupts)); /* this is the `__INTERRUPTS` symbol */
-  } > FLASH
-
-  PROVIDE(_stext = ADDR(.vector_table) + SIZEOF(.vector_table));
-
   /* ### .text */
-  .text _stext :
+  .text ORIGIN(FLASH) :
   {
     __stext = .;
     *(.Reset);
@@ -126,6 +102,30 @@ SECTIONS
   } > FLASH
 
   /* ## Sections in RAM */
+  /* ### Vector table */
+  .vector_table ORIGIN(RAM) :
+  {
+    __vector_table = .;
+
+    /* Initial Stack Pointer (SP) value.
+     * We mask the bottom three bits to force 8-byte alignment.
+     * Despite having an assert for this later, it's possible that a separate
+     * linker script could override _stack_start after the assert is checked.
+     */
+    LONG(_stack_start & 0xFFFFFFF8);
+
+    /* Reset vector */
+    KEEP(*(.vector_table.reset_vector)); /* this is the `__RESET_VECTOR` symbol */
+    __reset_vector = .;
+
+    /* Exceptions */
+    KEEP(*(.vector_table.exceptions)); /* this is the `__EXCEPTIONS` symbol */
+    __eexceptions = .;
+
+    /* Device specific interrupts */
+    KEEP(*(.vector_table.interrupts)); /* this is the `__INTERRUPTS` symbol */
+  } > RAM
+
   /* ### .data */
   .data : ALIGN(4)
   {
@@ -251,13 +251,17 @@ may be enabling it)
 - Supply the interrupt handlers yourself. Check the documentation for details.");
 
 /* ## .text */
+/* 
 ASSERT(ADDR(.vector_table) + SIZEOF(.vector_table) <= _stext, "
 ERROR(cortex-m-rt): The .text section can't be placed inside the .vector_table section
 Set _stext to an address greater than the end of .vector_table (See output of `nm`)");
+*/
 
+/*
 ASSERT(_stext + SIZEOF(.text) < ORIGIN(FLASH) + LENGTH(FLASH), "
 ERROR(cortex-m-rt): The .text section must be placed inside the FLASH memory.
 Set _stext to an address smaller than 'ORIGIN(FLASH) + LENGTH(FLASH)'");
+*/
 
 /* # Other checks */
 ASSERT(SIZEOF(.got) == 0, "
