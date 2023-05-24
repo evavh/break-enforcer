@@ -29,9 +29,9 @@ fn main() -> ! {
     // Wait for HSE clock to become ready
     while dp.RCC.cr.read().hserdy().is_not_ready() {}
 
-    // Set the power interface clock to on
-    dp.RCC.apb1enr.write(|w| w.pwren().enabled());
-    delay(10);
+    // // Set the power interface clock to on
+    // dp.RCC.apb1enr.write(|w| w.pwren().enabled());
+    // delay(10);
 
     // enable instruction cache, prefetch buffer
     // data cache and set flash latency to 5 wait states
@@ -69,12 +69,12 @@ fn main() -> ! {
         w.pllon().on()
     });
 
-    const SCALE_TWO: u8 = 0b10;
-    unsafe {
-        dp.PWR.cr.write(|w| w.vos().bits(SCALE_TWO));
-    }
-    info!("waiting for voltage output selection to be ready");
-    while dp.PWR.csr.read().vosrdy().bit_is_clear() {}
+    // const SCALE_TWO: u8 = 0b10;
+    // unsafe {
+    //     dp.PWR.cr.write(|w| w.vos().bits(SCALE_TWO));
+    // }
+    // info!("waiting for voltage output selection to be ready");
+    // while dp.PWR.csr.read().vosrdy().bit_is_clear() {}
 
     info!("waiting for PLL to become ready");
     while dp.RCC.cr.read().pllrdy().is_not_ready() {}
