@@ -71,8 +71,9 @@ SECTIONS
 
   /* ## Sections in FLASH */
   /* ### Vector table */
-  .vector_table ORIGIN(FLASH) :
+  .vector_table ORIGIN(RAM) :
   {
+	_svect_in_ram = .;
     __vector_table = .;
 
     /* Initial Stack Pointer (SP) value.
@@ -92,9 +93,11 @@ SECTIONS
 
     /* Device specific interrupts */
     KEEP(*(.vector_table.interrupts)); /* this is the `__INTERRUPTS` symbol */
-  } > FLASH
+	_evect_in_ram = .;
+  } > RAM AT>FLASH
+  _vect_in_flash = LOADADDR(.vector_table);
 
-  PROVIDE(_stext = ADDR(.vector_table) + SIZEOF(.vector_table));
+  PROVIDE(_stext = LOADADDR(.vector_table) + SIZEOF(.vector_table));
 
   /* ### .text */
   .text _stext :
@@ -253,7 +256,7 @@ may be enabling it)
 - Supply the interrupt handlers yourself. Check the documentation for details.");
 
 /* ## .text */
-ASSERT(ADDR(.vector_table) + SIZEOF(.vector_table) <= _stext, "
+ASSERT(LOADADDR(.vector_table) + SIZEOF(.vector_table) <= _stext, "
 ERROR(cortex-m-rt): The .text section can't be placed inside the .vector_table section
 Set _stext to an address greater than the end of .vector_table (See output of `nm`)");
 

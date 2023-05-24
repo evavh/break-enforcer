@@ -10,7 +10,7 @@ use defmt_rtt as _;
 use fugit::RateExtU32;
 use hal::{
     gpio::{self, PinExt},
-    pac::{Peripherals, CorePeripherals},
+    pac::{CorePeripherals, Peripherals},
     prelude::_stm32f4xx_hal_gpio_GpioExt,
     rcc::RccExt,
     syscfg::SysCfgExt,
@@ -22,7 +22,7 @@ use panic_probe as _;
 use crate::hal::prelude::_stm32f4xx_hal_gpio_ExtiPin;
 
 use core::{
-    slice,
+    ptr, slice,
     sync::atomic::{AtomicBool, Ordering},
 };
 use cortex_m_rt::entry;
@@ -39,11 +39,17 @@ pub fn exit() -> ! {
 
 #[no_mangle]
 pub unsafe extern "C" fn CustomReset() -> ! {
-    // let count = &_ebss as *const u8 as usize - &_sbss as *const u8 as usize;
-    // ptr::write_bytes(&mut _sbss as *mut u8, 0, count);
-    //
-    // let count = &_edata as *const u8 as usize - &_sdata as *const u8 as usize;
-    // ptr::copy_nonoverlapping(&_sidata as *const u8, &mut _sdata as *mut u8, count);
+    extern "C" {
+        static mut _evect_in_ram: u8;
+        static mut _svect_in_ram: u8;
+        static mut _vect_in_flash: u8;
+    }
+    let count = &_evect_in_ram as *const u8 as usize - &_svect_in_ram as *const u8 as usize;
+    ptr::copy_nonoverlapping(
+        &_vect_in_flash as *const u8,
+        &mut _svect_in_ram as *mut u8,
+        count,
+    );
 
     // Call the cortex-rt reset
     extern "C" {
