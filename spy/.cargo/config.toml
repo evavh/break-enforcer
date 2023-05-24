@@ -3,7 +3,10 @@
 # runner = "probe-run --chip STM32F103C8"
 runner = "probe-run --chip STM32F401CCUx"
 rustflags = [
-	"-C", "link-arg=-Tlink.x",
+	# "-C", "link-arg=-Tlink.x",
+	# custom linker script that puts interrupt vector in ram
+	# to lower interrupt latency
+	"-C", "link-arg=-Tcustom_link.x",
 	"-C", "link-arg=--nmagic",
 	"-C", "link-arg=-Tdefmt.x",
 ]
