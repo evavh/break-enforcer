@@ -10,9 +10,9 @@ nb = "1"
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7"
 
-# defmt = "0.3"
-# defmt-rtt = "0.4"
-# panic-probe = { version = "0.3", features = ["print-defmt"] }
+defmt = "0.3"
+defmt-rtt = "0.4"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
 fugit = "0.3.6"
 
 [dependencies.stm32f4xx-hal]
@@ -26,5 +26,5 @@ rev = "0e48d22e0726ad074bf00b2ef07bc02841305f90"
 lto = true
 codegen-units = 1
 panic = "abort"
-opt-level = 3
+# opt-level = 3
 debug = 2
