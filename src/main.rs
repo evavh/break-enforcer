@@ -2,21 +2,15 @@
 #![no_std]
 
 use core::arch::asm;
-use core::panic::PanicInfo;
 
-// use defmt_rtt as _;
+use defmt_rtt as _;
 use fugit::RateExtU32;
 use hal::{gpio, pac::Peripherals, prelude::_stm32f4xx_hal_gpio_GpioExt, rcc::RccExt};
 use stm32f4xx_hal as hal;
 // global logger
-// use panic_probe as _;
+use panic_probe as _;
 
 use cortex_m_rt::entry;
-
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {}
-}
 
 #[entry]
 fn main() -> ! {
