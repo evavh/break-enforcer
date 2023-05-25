@@ -95,7 +95,7 @@ SECTIONS
     KEEP(*(.vector_table.interrupts)); /* this is the `__INTERRUPTS` symbol */
 	_evect_in_ram = .;
   } > RAM AT>FLASH
-  _vect_in_flash = LOADADDR(.vector_table);
+  _svect_in_flash = LOADADDR(.vector_table);
 
   PROVIDE(_stext = LOADADDR(.vector_table) + SIZEOF(.vector_table));
 

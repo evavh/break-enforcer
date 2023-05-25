@@ -22,6 +22,7 @@ use panic_probe as _;
 use crate::hal::prelude::_stm32f4xx_hal_gpio_ExtiPin;
 
 use core::{
+    arch::asm,
     ptr, slice,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -42,13 +43,22 @@ pub unsafe extern "C" fn CustomReset() -> ! {
     extern "C" {
         static mut _evect_in_ram: u8;
         static mut _svect_in_ram: u8;
-        static mut _vect_in_flash: u8;
+        static mut _svect_in_flash: u8;
     }
     let count = &_evect_in_ram as *const u8 as usize - &_svect_in_ram as *const u8 as usize;
     ptr::copy_nonoverlapping(
-        &_vect_in_flash as *const u8,
+        &_svect_in_flash as *const u8,
         &mut _svect_in_ram as *mut u8,
         count,
+    );
+
+    // set vector table offset
+    asm!(
+        "
+        ldr r0, =0xe000ed08        // adress of the VTOR register
+        ldr r1, =__vector_table    // new vt location
+        str r1, [r0]               // move the vt adress into vtor register
+    "
     );
 
     // Call the cortex-rt reset
