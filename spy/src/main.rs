@@ -44,12 +44,7 @@ pub unsafe extern "C" fn CustomReset() -> ! {
         static mut _evect_in_ram: u8;
         static mut _svect_in_ram: u8;
         static mut _svect_in_flash: u8;
-        static mut _stext_in_ram: u8;
-        static mut _etext_in_ram: u8;
-        static mut _stext_in_flash: u8;
     }
-
-    // copy vector table to RAM
     let count = &_evect_in_ram as *const u8 as usize - &_svect_in_ram as *const u8 as usize;
     ptr::copy_nonoverlapping(
         &_svect_in_flash as *const u8,
@@ -57,19 +52,11 @@ pub unsafe extern "C" fn CustomReset() -> ! {
         count,
     );
 
-    // copy code to RAM
-    let count = &_etext_in_ram as *const u8 as usize - &_stext_in_ram as *const u8 as usize;
-    ptr::copy_nonoverlapping(
-        &_stext_in_flash as *const u8,
-        &mut _stext_in_ram as *mut u8,
-        count,
-    );
-
     // set vector table offset
     asm!(
         "
         ldr r0, =0xe000ed08        // adress of the VTOR register
-        ldr r1, =_svect_in_ram     // new vt location
+        ldr r1, =__vector_table    // new vt location
         str r1, [r0]               // move the vt adress into vtor register
     "
     );
