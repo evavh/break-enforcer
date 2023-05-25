@@ -69,12 +69,10 @@ SECTIONS
 {
   PROVIDE(_stack_start = ORIGIN(RAM) + LENGTH(RAM));
 
-  /* ## Sections in FLASH */
   /* ### Vector table */
   .vector_table ORIGIN(RAM) :
   {
 	_svect_in_ram = .;
-    __vector_table = .;
 
     /* Initial Stack Pointer (SP) value.
      * We mask the bottom three bits to force 8-byte alignment.
@@ -97,12 +95,11 @@ SECTIONS
   } > RAM AT>FLASH
   _svect_in_flash = LOADADDR(.vector_table);
 
-  PROVIDE(_stext = LOADADDR(.vector_table) + SIZEOF(.vector_table));
-
-  /* ### .text */
-  .text _stext :
+  PROVIDE(_stext_in_ram = ADDR(.vector_table) + SIZEOF(.vector_table));
+  /* ## .text */
+  .text _stext_in_ram :
   {
-    __stext = .;
+    _stext_in_ram = .;
     *(.Reset);
 
     *(.text .text.*);
@@ -113,8 +110,9 @@ SECTIONS
     *(.HardFault.*);
 
     . = ALIGN(4); /* Pad .text to the alignment to workaround overlapping load section bug in old lld */
-    __etext = .;
-  } > FLASH
+    _etext_in_ram = .;
+  } > RAM AT>FLASH
+  _stext_in_flash = LOADADDR(.text);
 
   /* ### .rodata */
   .rodata : ALIGN(4)
@@ -256,13 +254,13 @@ may be enabling it)
 - Supply the interrupt handlers yourself. Check the documentation for details.");
 
 /* ## .text */
-ASSERT(LOADADDR(.vector_table) + SIZEOF(.vector_table) <= _stext, "
+ASSERT(LOADADDR(.vector_table) + SIZEOF(.vector_table) <= _stext_in_ram, "
 ERROR(cortex-m-rt): The .text section can't be placed inside the .vector_table section
-Set _stext to an address greater than the end of .vector_table (See output of `nm`)");
+Set _stext_in_ram to an address greater than the end of .vector_table (See output of `nm`)");
 
-ASSERT(_stext + SIZEOF(.text) < ORIGIN(FLASH) + LENGTH(FLASH), "
+ASSERT(LOADADDR(.text) + SIZEOF(.text) < ORIGIN(FLASH) + LENGTH(FLASH), "
 ERROR(cortex-m-rt): The .text section must be placed inside the FLASH memory.
-Set _stext to an address smaller than 'ORIGIN(FLASH) + LENGTH(FLASH)'");
+Set _stext_in_ram to an address smaller than 'ORIGIN(FLASH) + LENGTH(FLASH)'");
 
 /* # Other checks */
 ASSERT(SIZEOF(.got) == 0, "
