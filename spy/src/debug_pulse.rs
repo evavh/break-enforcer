@@ -1,3 +1,5 @@
+use core::arch::global_asm;
+
 // stm32f4 has minimum 12 cycle interrupt delay
 // usb clocks at 12Mhz, stm at 84Mhz
 // stm has 7 cycles for each usb cycle
@@ -11,11 +13,6 @@
 //
 // https://developer.arm.com/documentation/100166/0001/Programmers-Model/Instruction-set-summary/Table-of-processor-instructions
 //
-
-pub const DEBUG_GPIO_REG: u32 = 0x40020814;
-// debug pin (pa0) is only pin in GPIOA (except clock pin which ignores this)
-pub const DEBUG_ON: u32 = 1;
-pub const DEBUG_OFF: u32 = 0;
 
 // 100 nops should take about 1.2 usecs and they do
 // debug interrupt routine

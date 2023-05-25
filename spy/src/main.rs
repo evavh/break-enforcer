@@ -28,9 +28,9 @@ use core::{
 };
 use cortex_m_rt::entry;
 
-// mod debug_pulse;
-mod read_packets;
-use read_packets::ARRAY_OFFSET;
+mod debug_pulse;
+// mod read_packets;
+// use read_packets::ARRAY_OFFSET;
 
 /// Terminates the application and makes `probe-run` exit with exit-code = 0
 pub fn exit() -> ! {
@@ -75,6 +75,7 @@ const ARRAY_LEN: usize = 360;
 // *2 as there are two 'arrays' between which we alternate
 static mut ARRAY1: [u32; ARRAY_LEN] = [5u32; ARRAY_LEN];
 static mut ARRAY2: [u32; ARRAY_LEN] = [5u32; ARRAY_LEN];
+static mut ARRAY_OFFSET: *const u32 = unsafe { ARRAY1.as_ptr() };
 
 static DONE: AtomicBool = AtomicBool::new(false);
 
