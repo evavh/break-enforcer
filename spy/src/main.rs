@@ -28,6 +28,7 @@ use core::{
 };
 use cortex_m_rt::entry;
 
+// mod debug_pulse;
 mod read_packets;
 use read_packets::ARRAY_OFFSET;
 
