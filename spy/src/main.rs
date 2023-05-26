@@ -28,9 +28,8 @@ use core::{
 };
 use cortex_m_rt::entry;
 
-mod debug_pulse;
-// mod read_packets;
-// use read_packets::ARRAY_OFFSET;
+// mod debug_pulse;
+mod read_packets;
 
 /// Terminates the application and makes `probe-run` exit with exit-code = 0
 pub fn exit() -> ! {
@@ -71,7 +70,7 @@ pub unsafe extern "C" fn CustomReset() -> ! {
 }
 
 // is transformed into immediate in assembly
-const ARRAY_LEN: usize = 360;
+const ARRAY_LEN: usize = 1_000;
 // *2 as there are two 'arrays' between which we alternate
 static mut ARRAY1: [u32; ARRAY_LEN] = [5u32; ARRAY_LEN];
 static mut ARRAY2: [u32; ARRAY_LEN] = [5u32; ARRAY_LEN];
@@ -81,8 +80,6 @@ static DONE: AtomicBool = AtomicBool::new(false);
 
 #[entry]
 fn main() -> ! {
-    assert_no_duplicate_patterns();
-
     let mut dp = Peripherals::take().unwrap();
     let mut core = CorePeripherals::take().unwrap();
     let rcc = dp.RCC.constrain();
@@ -140,184 +137,96 @@ fn main() -> ! {
         core.NVIC.set_priority(usb.interrupt(), 0); // set highest prio
     }
 
-    // let mut counter = 0;
-    let mut arrayarray: [[u32; ARRAY_LEN]; 15] = [[0u32; ARRAY_LEN]; 15];
-    loop {
-        for a in &mut arrayarray {
-            while !DONE
-                .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
-                .is_ok()
-            {
-                // counter += 1;
-                // if counter % 4000 == 0 {
-                //     trace!("waiting for interrupt");
-                // }
-            }
+    // wait for 5 seconds (assuming 84Mhz)
+    cortex_m::asm::delay(84 * 1_000_000 * 5);
+    let mut samples: Samples<1> = Samples::new();
+    samples.collect(&DONE);
+    info!("{}", samples);
+    exit()
+}
 
-            unsafe {
-                let array = slice::from_raw_parts(ARRAY_OFFSET, ARRAY_LEN);
-                a.clone_from_slice(array)
+#[inline]
+fn mask<const P: u16>(register: u32) -> Sample<P> {
+    // shift the bit representing the pin of intrested to position 0.
+    let port = register >> P;
+    // make everything else 1 becomes zero
+    let port = port & 1;
+    match port {
+        0 => Sample::Low,
+        1 => Sample::High,
+        _ => Sample::None,
+    }
+}
+
+fn wait_for_new_data(data_rdy: &AtomicBool) {
+    while !data_rdy
+        .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
+        .is_ok()
+    {}
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Sample<const P: u16> {
+    High,
+    Low,
+    None,
+}
+
+// #[derive(Default)]
+// struct SampleHasher {
+//     hasher: rustc_hash::FxHasher,
+//     bit_idx: u8, // default = 0
+//     word: u32,
+// }
+//
+// impl SampleHasher {
+//     fn write(&mut self, s: Sample) {
+//         if bit_idx >= 31
+//         self.word
+//     }
+// }
+
+struct Samples<const P: u16> {
+    buffers: [[Sample<P>; ARRAY_LEN]; 18],
+}
+
+impl<const P: u16> Samples<P> {
+    fn new() -> Self {
+        Samples {
+            buffers: [[Sample::None; ARRAY_LEN]; 18],
+        }
+    }
+
+    fn collect(&mut self, data_rdy: &AtomicBool) {
+        for buf in &mut self.buffers {
+            wait_for_new_data(data_rdy);
+            let array = unsafe { slice::from_raw_parts(ARRAY_OFFSET, ARRAY_LEN) };
+            for (sample, register) in buf.iter_mut().zip(array) {
+                *sample = mask(*register);
             }
         }
-
-        for a in arrayarray {
-            let package = Package::new(a, usb_pin as usize);
-            if let Package::Unknown { meta, .. } = package {
-                info!("{}", meta);
-            }
-        }
-    }
-    // exit()
-}
-
-#[derive(defmt::Format, Clone)]
-struct Meta {
-    ones: usize,
-    len: Option<usize>,
-}
-
-impl Meta {
-    fn from_msg(msg: &[u8]) -> Self {
-        let mut len = None;
-        for (i, b) in msg.iter().enumerate().rev() {
-            if *b == 0 {
-                len = Some(i + 1);
-                break;
-            }
-        }
-
-        let ones = msg[0..len.unwrap_or(ARRAY_LEN)]
-            .iter()
-            .map(|b| *b as usize)
-            .sum();
-
-        Self { len, ones }
-    }
-
-    fn distance(&self, other: &Self) -> usize {
-        let (Some(self_len), Some(other_len)) = (self.len, other.len) else {
-            return 1000;
-        };
-        self.ones.abs_diff(other.ones) + self_len.abs_diff(other_len)
-    }
-
-    fn similar_to(&self, other: &Self) -> bool {
-        self.distance(other) < 5
     }
 }
 
-enum Package {
-    Known(usize),
-    Unknown { meta: Meta, msg: [u8; ARRAY_LEN] },
-}
-
-impl Package {
-    fn new(port_bytes: [u32; ARRAY_LEN], usb_pin: usize) -> Package {
-        let msg = port_bytes
-            .map(|port| port >> usb_pin) // shift back so 0 or 2 becomes 0 or 1
-            .map(|port| port & 1) // everything non 1 becomes zero
-            .map(|b| b as u8);
-
-        let meta = Meta::from_msg(&msg);
-        for (idx, pattern) in KNOWN.iter().enumerate() {
-            if meta.similar_to(&pattern) {
-                return Package::Known(idx);
-            }
-        }
-
-        Package::Unknown { meta, msg }
-    }
-}
-
-impl defmt::Format for Package {
+impl<const P: u16> defmt::Format for Samples<P> {
     fn format(&self, fmt: defmt::Formatter) {
-        match self {
-            Package::Known(c) => defmt::write!(fmt, "Known: {}", c),
-            Package::Unknown { meta, msg } => {
-                defmt::write!(fmt, "Unknown (meta: {}), bytes: [", meta);
-                // for b in msg {
-                //     match *b {
-                //         0 => defmt::write!(fmt, "0"),
-                //         1 => defmt::write!(fmt, "1"),
-                //         other => defmt::write!(fmt, "{}", other),
-                //     }
-                // }
-                // defmt::write!(fmt, "]\n");
+        for samples in self.buffers {
+            defmt::write!(fmt, "\n[");
+            for sample in samples {
+                defmt::write!(fmt, "{}", sample.char());
             }
+            defmt::write!(fmt, "]\n");
         }
+        defmt::write!(fmt, "\n");
     }
 }
 
-#[rustfmt::skip]
-const KNOWN: [Meta; 52] = [
-	Meta { ones: 135, len: Some(240) },
-	Meta { ones: 39, len: Some(69) },
-	Meta { ones: 44, len: Some(69) },
-	Meta { ones: 204, len: Some(235) },
-	Meta { ones: 140, len: Some(253) },
-	Meta { ones: 44, len: Some(69) },
-	Meta { ones: 207, len: Some(234) },
-	Meta { ones: 148, len: Some(251) },
-	Meta { ones: 43, len: Some(68) },
-	Meta { ones: 203, len: Some(235) },
-	Meta { ones: 41, len: Some(69) },
-	Meta { ones: 155, len: Some(253) },
-	Meta { ones: 203, len: Some(235) },
-	Meta { ones: 142, len: Some(253) },
-	Meta { ones: 204, len: Some(235) },
-	Meta { ones: 146, len: Some(253) },
-	Meta { ones: 45, len: Some(69) },
-	Meta { ones: 206, len: Some(235) },
-	Meta { ones: 142, len: Some(253) },
-	Meta { ones: 40, len: Some(69) },
-	Meta { ones: 207, len: Some(235) },
-	Meta { ones: 142, len: Some(253) },
-	Meta { ones: 35, len: Some(53) },
-	Meta { ones: 37, len: Some(69) },
-	Meta { ones: 202, len: Some(234) },
-	Meta { ones: 42, len: Some(69) },
-	Meta { ones: 140, len: Some(253) },
-	Meta { ones: 202, len: Some(235) },
-	Meta { ones: 153, len: Some(253) },
-	Meta { ones: 205, len: Some(235) },
-	Meta { ones: 147, len: Some(253) },
-	Meta { ones: 39, len: Some(69) },
-	Meta { ones: 44, len: Some(69) },
-	Meta { ones: 200, len: Some(235) },
-	Meta { ones: 141, len: Some(253) },
-	Meta { ones: 43, len: Some(69) },
-	Meta { ones: 37, len: Some(69) },
-	Meta { ones: 206, len: Some(234) },
-	Meta { ones: 141, len: Some(251) },
-	Meta { ones: 45, len: Some(69) },
-    Meta { ones: 197, len: Some(233) },
-    Meta { ones: 156, len: Some(257) },
-    Meta { ones: 74, len: Some(90) },
-    Meta { ones: 15, len: Some(26) },
-    Meta { ones: 360, len: None },
-    Meta { ones: 134, len: Some(154) },
-    Meta { ones: 100, len: Some(120) },
-    Meta { ones: 30, len: Some(47) },
-    Meta { ones: 137, len: Some(158) },
-    Meta { ones: 136, len: Some(251) },
-    Meta { ones: 159, len: Some(252) },
-    Meta { ones: 213, len: Some(235) },
-];
-
-fn assert_no_duplicate_patterns() {
-    let mut i = 0;
-    let mut pats = KNOWN.map(|m| {
-        i += 1;
-        (i, m)
-    });
-
-    let (_, dups) = pats.partition_dedup_by(|(_, pa), (_, pb)| pa.similar_to(pb));
-
-    for dup in dups.iter() {
-        info!("duplicate pattern: {} (starts at 1), {}", dup.0, dup.1);
-    }
-
-    if !dups.is_empty() {
-        exit();
+impl<const P: u16> Sample<P> {
+    fn char(&self) -> char {
+        match self {
+            Sample::High => '1',
+            Sample::Low => '0',
+            Sample::None => '*',
+        }
     }
 }

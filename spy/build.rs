@@ -47,6 +47,7 @@ fn array_length() -> usize {
             .expect("ARRAY_LEN not ending with ';'");
     main[equals + 1..semicolon]
         .trim()
+        .replace("_", "")
         .parse()
         .expect("build script needs ARRAY_LEN constant")
 }

@@ -1,4 +1,4 @@
-use crate::{ARRAY2, ARRAY1, DONE};
+use crate::{ARRAY2, ARRAY1, ARRAY_OFFSET, DONE};
 use core::arch::global_asm;
 
 pub const DEBUG_GPIO_REG: u32 = 0x40020814;
@@ -15,31 +15,27 @@ global_asm! {
     ".type EXTI1,%function",
     ".thumb_func",
 "EXTI1:",
-    ".fnstart",
-    ".cfi_startproc",
+    // ".fnstart",
+    // ".cfi_startproc",
 
-    "/* {DEBUG_GPIO_REG} {DEBUG_ON} {DEBUG_OFF} */",
-    // debug only, toggle debug pin
-    // ".equ label, {DEBUG_GPIO_REG}",
-    // "movw r0, #2068",
-    // "movt r0, #16386",
-    // "movw r1, #:lower16:{DEBUG_ON}",             // top 16 bit are zeroed
-    // // "str r1, [r0]",                              // 2 cycles
-    // "movw r1, #:lower16:{DEBUG_OFF}",            // top 16 bit are zeroed
-    // // "str r1, [r0]",                              // 2 cycles
-    
+    "/* {DEBUG_GPIO_REG} {DEBUG_ON} {DEBUG_OFF} {DONE}*/",
     // output debug pulse
+    /* 
+
     "movs r0, #20",
     "movs r1, #1",
     "movt r0, #16386",
     "str r1, [r0]",                                 // 2 cycles
     "movs r1, #0",                                  // 1 cycle
     "str r1, [r0]",                                 // 2 cycles
-    // worst case 5 cycles high period should take 1/(1/84*5) = 16.8 Mhz
-    // and we are measuring 8.... that is twice too slow...
-    //
-    // also note 5 clock cycles = 1 High speed clock pulse
-    // thus the div on that clock is 5 (should be 10?)
+    // we see the pulse 292 ns after interrupt should have been triggerd
+    // 84 Mhz = 11.9 ns per cycle
+    // 25.5 cycles after start of interrupt
+    // 1 usb pulse (half wave) at 12 Mhz is 83 nsec or 7 cycles
+    // after the first str we are at 3.6 USB cycles
+    // we want to be in the middle of a usb cycle when we start reading
+
+    */
 
     // 12 cycles past interrupt source
 
@@ -108,8 +104,8 @@ global_asm! {
     "ldr r1, [r0]",                              // 2 cycles
     "str r1, [r2, #16]",                         // 2 cycles
     // set DONE (r3) to 1 (r12)
-    "mov r12, #1",                                // 1 cycle
-    "strb r12, [r3]",                             // 2 cycles
+    "mov r12, #1",                               // 1 cycle
+    "strb r12, [r3]",                            // 2 cycles
     // = 35 cycles after first read
 
 
@@ -124,11 +120,8 @@ global_asm! {
     "movs r12, #20",
     "movt r12, #16386",
     "movs r3, #1",
-    // this pulse takes 154 micro seconds for 360 reads = 427 nsecs per cycle
-    // thats 2.3 MHz while it should be 12. 
-    // At 12Mhz each read should take 83.3 nsecs 
-    // and the total should take 30 micro secs
-    // this is 5 times too slow. It implies the cpu is running at 16.8 Mhz 
+    // this pulse takes 29 micro seconds for 360 reads = 80.5 nsecs per cycle
+    // thats ~=12 MHz 
     "str r3, [r12]",                                 // 2 cycles (debug pin high)
     include_str!(concat!(env!("OUT_DIR"), "/loop.s")), // should be N * 7
     "movs r3, #0",                                   // 1 cycle
@@ -168,9 +161,9 @@ global_asm! {
     "bx lr",
 
 
-    ".cfi_endproc",
-    ".cantunwind",
-    ".fnend",
+    // ".cfi_endproc",
+    // ".cantunwind",
+    // ".fnend",
 
     ARRAY1 = sym ARRAY1,
     ARRAY2 = sym ARRAY2,
@@ -180,5 +173,3 @@ global_asm! {
     DEBUG_ON = const DEBUG_ON,
     DEBUG_OFF = const DEBUG_OFF,
 }
-
-pub static mut ARRAY_OFFSET: *const u32 = unsafe { ARRAY1.as_ptr() };
