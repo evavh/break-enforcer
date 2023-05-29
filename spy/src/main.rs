@@ -144,9 +144,10 @@ fn main() -> ! {
     cortex_m::asm::delay(84 * 1_000_000 * 5);
     let mut packets: Packets<50> = Packets::new();
     packets.collect(&DONE);
-    // info!("{}", packets.list);
-    // info!("{}", packets.hashes);
-    exit()
+    info!("{}", packets.list);
+    info!("{}", packets.hashes);
+
+    loop {}
 }
 
 #[inline]

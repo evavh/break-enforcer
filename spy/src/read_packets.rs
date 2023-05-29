@@ -116,16 +116,16 @@ global_asm! {
     //  - the fourth+fifth read sets the new data bool to true
 
 
-    // debug pulse surrounding ARRAY values
-    "movs r12, #20",
-    "movt r12, #16386",
-    "movs r3, #1",
-    // this pulse takes 29 micro seconds for 360 reads = 80.5 nsecs per cycle
-    // thats ~=12 MHz 
-    "str r3, [r12]",                                 // 2 cycles (debug pin high)
+    // // debug pulse surrounding ARRAY values
+    // "movs r12, #20",
+    // "movt r12, #16386",
+    // "movs r3, #1",
+    // // this pulse takes 29 micro seconds for 360 reads = 80.5 nsecs per cycle
+    // // thats ~=12 MHz 
+    // "str r3, [r12]",                                 // 2 cycles (debug pin high)
     include_str!(concat!(env!("OUT_DIR"), "/loop.s")), // should be N * 7
-    "movs r3, #0",                                   // 1 cycle
-    "str r3, [r12]",                                 // 2 cycles (debug pin low)
+    // "movs r3, #0",                                   // 1 cycle
+    // "str r3, [r12]",                                 // 2 cycles (debug pin low)
 
     // // re-enable interrupts
     // "CPSIE",
