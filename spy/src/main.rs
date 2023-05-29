@@ -5,7 +5,7 @@
 #![feature(slice_partition_dedup)]
 #![feature(asm_const)]
 
-use defmt::info;
+use defmt::{info, trace};
 use defmt_rtt as _;
 use fugit::RateExtU32;
 use hal::{
@@ -23,6 +23,9 @@ use crate::hal::prelude::_stm32f4xx_hal_gpio_ExtiPin;
 
 use core::{
     arch::asm,
+    array,
+    hash::Hasher,
+    hint::unreachable_unchecked,
     ptr, slice,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -139,14 +142,15 @@ fn main() -> ! {
 
     // wait for 5 seconds (assuming 84Mhz)
     cortex_m::asm::delay(84 * 1_000_000 * 5);
-    let mut samples: Samples<1> = Samples::new();
-    samples.collect(&DONE);
-    info!("{}", samples);
+    let mut packets: Packets<50> = Packets::new();
+    packets.collect(&DONE);
+    // info!("{}", packets.list);
+    // info!("{}", packets.hashes);
     exit()
 }
 
 #[inline]
-fn mask<const P: u16>(register: u32) -> Sample<P> {
+fn mask<const P: u16>(register: u32) -> Sample {
     // shift the bit representing the pin of intrested to position 0.
     let port = register >> P;
     // make everything else 1 becomes zero
@@ -154,7 +158,7 @@ fn mask<const P: u16>(register: u32) -> Sample<P> {
     match port {
         0 => Sample::Low,
         1 => Sample::High,
-        _ => Sample::None,
+        _ => unsafe { unreachable_unchecked() },
     }
 }
 
@@ -166,67 +170,158 @@ fn wait_for_new_data(data_rdy: &AtomicBool) {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum Sample<const P: u16> {
-    High,
-    Low,
-    None,
+enum Sample {
+    High = 1,
+    Low = 0,
 }
 
-// #[derive(Default)]
-// struct SampleHasher {
-//     hasher: rustc_hash::FxHasher,
-//     bit_idx: u8, // default = 0
-//     word: u32,
-// }
-//
-// impl SampleHasher {
-//     fn write(&mut self, s: Sample) {
-//         if bit_idx >= 31
-//         self.word
-//     }
-// }
-
-struct Samples<const P: u16> {
-    buffers: [[Sample<P>; ARRAY_LEN]; 18],
+/// compact representation of a bit list that
+/// can easily be hashed
+struct Packet {
+    buf: [u32; (ARRAY_LEN + 31) / 32], // if only we had div ceil...
+    bits: u16,
 }
 
-impl<const P: u16> Samples<P> {
+struct PacketIterator<'a> {
+    packet: &'a Packet,
+    next_bit: u16,
+}
+
+impl<'a> IntoIterator for &'a Packet {
+    type Item = Sample;
+    type IntoIter = PacketIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        PacketIterator {
+            packet: self,
+            next_bit: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for PacketIterator<'a> {
+    type Item = Sample;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next_bit >= self.packet.bits {
+            return None;
+        }
+
+        let sample = self.packet.get(self.next_bit);
+        self.next_bit += 1;
+        Some(sample)
+    }
+}
+
+impl Packet {
+    const fn new() -> Self {
+        Self {
+            buf: [0u32; (ARRAY_LEN + 31) / 32],
+            bits: 0,
+        }
+    }
+
+    fn get(&self, idx: u16) -> Sample {
+        let byte_idx = idx / 32;
+        let bit_idx = idx % 32;
+        let word = self.buf[byte_idx as usize];
+        let bit = (word >> bit_idx) & 1;
+        Sample::from_bit(bit)
+    }
+
+    fn push(&mut self, val: Sample) {
+        let byte_idx = self.bits / 32;
+        let bit_idx = self.bits % 32;
+        let mask = (val as u32) << bit_idx;
+        self.buf[byte_idx as usize] |= mask;
+        self.bits += 1;
+    }
+
+    fn hash(&self) -> usize {
+        let mut hash = rustc_hash::FxHasher::default();
+        for word in self.buf {
+            hash.write_u32(word);
+        }
+        // on 32 bit platforms this is a 32 bit hasher
+        hash.finish() as usize
+    }
+}
+
+struct Packets<const N: usize> {
+    list: [Packet; N],
+    hashes: [u32; N],
+    free: usize,
+}
+
+impl<const N: usize> Packets<N> {
     fn new() -> Self {
-        Samples {
-            buffers: [[Sample::None; ARRAY_LEN]; 18],
+        Packets {
+            list: array::from_fn(|_| Packet::new()),
+            hashes: [0u32; N],
+            free: 0,
+        }
+    }
+
+    fn append(&mut self, candidate: &[u32]) -> Result<(), &'static str> {
+        let packet = &mut self.list[self.free];
+        let mut sum = 0;
+        for register in candidate {
+            let sample = mask::<1>(*register);
+            sum += sample as u16;
+            packet.push(sample)
+        }
+        let hash = packet.hash() as u32;
+        let known = self.hashes.contains(&hash);
+        assert_ne!(sum, 0);
+        if known {
+            trace!("known package, hash: {}", hash);
+            return Ok(());
+        }
+
+        self.hashes[self.free] = hash;
+        self.free += 1;
+        if self.free >= N {
+            Err("no more space for new packets")
+        } else {
+            Ok(())
         }
     }
 
     fn collect(&mut self, data_rdy: &AtomicBool) {
-        for buf in &mut self.buffers {
+        loop {
             wait_for_new_data(data_rdy);
             let array = unsafe { slice::from_raw_parts(ARRAY_OFFSET, ARRAY_LEN) };
-            for (sample, register) in buf.iter_mut().zip(array) {
-                *sample = mask(*register);
+            if let Err(_) = self.append(array) {
+                info!("Packets storage is full");
+                break;
             }
         }
     }
 }
 
-impl<const P: u16> defmt::Format for Samples<P> {
+impl defmt::Format for Packet {
     fn format(&self, fmt: defmt::Formatter) {
-        for samples in self.buffers {
-            defmt::write!(fmt, "\n[");
-            for sample in samples {
-                defmt::write!(fmt, "{}", sample.char());
-            }
-            defmt::write!(fmt, "]\n");
+        defmt::write!(fmt, "\n[");
+        for sample in self {
+            defmt::write!(fmt, "{}", sample.char());
         }
-        defmt::write!(fmt, "\n");
+        defmt::write!(fmt, "]\n");
     }
 }
 
-impl<const P: u16> Sample<P> {
+impl Sample {
     fn char(&self) -> char {
         match self {
             Sample::High => '1',
             Sample::Low => '0',
-            Sample::None => '*',
+        }
+    }
+
+    fn from_bit(bit: u32) -> Self {
+        if bit == 0 {
+            Sample::Low
+        } else {
+            Sample::High
         }
     }
 }
