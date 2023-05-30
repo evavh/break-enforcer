@@ -12,7 +12,8 @@ fn main() {
 }
 
 fn loop_assembly() -> String {
-    let len =array_length();
+    let mask = 0b0000_0000;
+    let len = array_length();
     assert!(len > 5, "array must be a minimum of 5 long");
     let sections: Vec<String> = (5..array_length())
         .map(|i| i * size_of::<u32>())
@@ -21,13 +22,15 @@ fn loop_assembly() -> String {
                 "//load the current value of the pin into r1
         ldr r1, [r0]                              // 2 cycles
         // store r1 in ARRAY[n]
-        str r1, [r2, #{}]                         // 2 cycles
-        NOP                                       // 1 cycle
-        NOP                                       // 1 cycle
-        NOP                                       // 1 cycle
+        str r1, [r2, #{offset}]                   // 2 cycles
+        TST r1, #{mask:x}                         // 1 cycle
+        // BEQ .EXIT                                 // 1 cycle (if not breaking)
+        // NOP                                       // 1 cycle
+        NOP
+        NOP
+        NOP
         // = n*7 cycles after first read
-    ",
-                offset
+    "
             )
         })
         .collect();

@@ -110,16 +110,18 @@ fn main() -> ! {
     let _ = gpio_a.pa8.into_alternate::<0>();
 
     let gpio_b = dp.GPIOB.split();
-    let mut usb = gpio_b.pb1.into_floating_input();
-    let usb_pin = usb.pin_id();
+    let mut usb_data_plus = gpio_b.pb1.into_floating_input();
+    let mut _usb_data_min = gpio_b.pb2.into_floating_input();
 
-    info!("usb pin: pb{}", usb_pin);
+    info!("usb pin: pb{}", usb_data_plus.pin_id());
     // get adress of GPIOB's IDR (input data) register. Accessed as 32 bit
     // word, however only the lower 16 bit represent pin values
-    let usb_data_plus = unsafe { (*hal::pac::GPIOB::ptr()).idr.as_ptr() };
+    let usb_data_register = unsafe { (*hal::pac::GPIOB::ptr()).idr.as_ptr() };
     info!(
-        "usb data+ (pb{}) addr (PB in): {:x}",
-        usb_pin, usb_data_plus
+        "data plus: pb{}, data min: pb{}, addr (PB in): {:x}",
+        usb_data_plus.pin_id(),
+        _usb_data_min.pin_id(),
+        usb_data_register
     );
     let debug_out = unsafe { (*hal::pac::GPIOC::ptr()).odr.as_ptr() };
     info!("debug out (pa0) addr (PC out): {:x}", debug_out);
@@ -127,17 +129,17 @@ fn main() -> ! {
     // exit();
 
     let mut syscfg = dp.SYSCFG.constrain();
-    usb.make_interrupt_source(&mut syscfg);
-    usb.enable_interrupt(&mut dp.EXTI);
-    usb.trigger_on_edge(&mut dp.EXTI, gpio::Edge::Falling);
-    let interrupt_number = usb.interrupt();
+    usb_data_plus.make_interrupt_source(&mut syscfg);
+    usb_data_plus.enable_interrupt(&mut dp.EXTI);
+    usb_data_plus.trigger_on_edge(&mut dp.EXTI, gpio::Edge::Falling);
+    let interrupt_number = usb_data_plus.interrupt();
 
     // clear pending interrupts on usb gpio
     cortex_m::peripheral::NVIC::unpend(interrupt_number);
     unsafe {
         // enable interrupt on usb gpio
         cortex_m::peripheral::NVIC::unmask(interrupt_number);
-        core.NVIC.set_priority(usb.interrupt(), 0); // set highest prio
+        core.NVIC.set_priority(usb_data_plus.interrupt(), 0); // set highest prio
     }
 
     // wait for 5 seconds (assuming 84Mhz)

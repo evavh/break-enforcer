@@ -71,7 +71,7 @@ global_asm! {
     "ldr r3, [r0]",                              // 2 cycles
     "str r1, [r2]",                              // 2 cycles
     "str r3, [r2, #4]",                          // 2 cycles
-    "NOP",
+    "NOP", 
     // = 14 cycles after first read
 
 
@@ -81,11 +81,9 @@ global_asm! {
     // set interrupt pending to 2/confirm handled
     "ldr r1, [r0]",                              // 2 cycles
     "str r1, [r2, #8]",                          // 2 cycles
-    // set 2nd (r12) irq_handled bit (at r3) to true
-    // TODO: still needed? we do this at the end now
-    // <16-05-23, dvdsk noreply@davidsk.dev>
-    "movs r12, #2",                               // 1 cycle
-    "str r12, [r3]",                              // 2 cycles
+    "movw r3, :lower16:{DONE}",                  // 1 cycle
+    "movt r3, :upper16:{DONE}",                  // 1 cycle
+    "NOP",                                       // 1 cycle
     // = 21 cycles after first read
 
 
@@ -94,18 +92,18 @@ global_asm! {
     // and prepare to set data rdy boolean to true
     "ldr r1, [r0]",                              // 2 cycles
     "str r1, [r2, #12]",                         // 2 cycles
-    "movw r3, :lower16:{DONE}",                  // 1 cycle
-    "movt r3, :upper16:{DONE}",                  // 1 cycle
-    "NOP",                                       // 1 cycle
+    // set DONE (r3) to 1 (r12)
+    "mov r1, #1",                               // 1 cycle
+    "strb r1, [r3]",                            // 2 cycles
     // = 28 cycles after first read
 
     // store pin state in ARRAY[4]
     // and finish setting data rdy boolean to true
     "ldr r1, [r0]",                              // 2 cycles
     "str r1, [r2, #16]",                         // 2 cycles
-    // set DONE (r3) to 1 (r12)
-    "mov r12, #1",                               // 1 cycle
-    "strb r12, [r3]",                            // 2 cycles
+    "NOP",                                       // 1 cycle
+    "NOP",                                       // 1 cycle
+    "NOP",                                       // 1 cycle
     // = 35 cycles after first read
 
 
@@ -127,14 +125,12 @@ global_asm! {
     // "movs r3, #0",                                   // 1 cycle
     // "str r3, [r12]",                                 // 2 cycles (debug pin low)
 
-    // // re-enable interrupts
-    // "CPSIE",
-
+    ".EXIT:",
     // mark interrupt as no longer pending
     "movw r3, #15380",                           // 1 cycle
     "movt r3, #16385",                           // 1 cycle
-    "movs r12, #2",                               // 1 cycle
-    "str r12, [r3]",                              // 2 cycles
+    "movs r12, #2",                              // 1 cycle
+    "str r12, [r3]",                             // 2 cycles
 
     "movw r1, :lower16:{ARRAY1}",                // 1 cycle
     "movt r1, :upper16:{ARRAY1}",                // 1 cycle
@@ -142,23 +138,23 @@ global_asm! {
     "movt r3, :upper16:{ARRAY_OFFSET}",          // 1 cycle
     // check if ARRAY_OFFSET == ARRAY1
     "cmp r1, r2", // r2 contains the current array_offset
-    "bne .OFFSET_ARRAY2",
+    "bne .OFFSET_ARRAY2",                        // 1 + P cycles
     // base == arry1
-    "movw r1, :lower16:{ARRAY2}",
-    "movt r1, :upper16:{ARRAY2}",
+    "movw r1, :lower16:{ARRAY2}",                // 1 cycle
+    "movt r1, :upper16:{ARRAY2}",                // 1 cycle
     // store mem adress of array2 in array_offset
-    "str r1, [r3]",
+    "str r1, [r3]",                              // 2 cycles
     // return out of the interrupt
-    "bx lr",                                     // 1 cycle minimum
+    "bx lr",                                     // 1 + P cycles
 
     ".OFFSET_ARRAY2:",
     // set ARRAY_OFFSET to ARRAY_BASE
-    "movw r1, :lower16:{ARRAY1}",
-    "movt r1, :upper16:{ARRAY1}",
+    "movw r1, :lower16:{ARRAY1}",                // 1 cycle
+    "movt r1, :upper16:{ARRAY1}",                // 1 cycle
     // store mem adress of array1 in array_offset
-    "str r1, [r3]",
+    "str r1, [r3]",                              // 2 cycles
     // return out of the interrupt
-    "bx lr",
+    "bx lr",                                     // 1 + P cycles
 
 
     // ".cfi_endproc",
