@@ -1,6 +1,6 @@
 #![feature(once_cell)]
 
-use usb_decode::decode;
+use usb_decode::{decode, GenericCrc};
 
 mod input;
 use input::DATA;
@@ -8,6 +8,6 @@ use input::DATA;
 #[test]
 fn decode_runs() {
     for sample in DATA.iter() {
-        decode(&sample).unwrap();
+        decode::<GenericCrc>(&sample).unwrap();
     }
 }
