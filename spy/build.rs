@@ -12,23 +12,27 @@ fn main() {
 }
 
 fn loop_assembly() -> String {
-    let mask = 0b0000_0000;
+    let mask = 0b0000_0111;
     let len = array_length();
-    assert!(len > 5, "array must be a minimum of 5 long");
-    let sections: Vec<String> = (5..array_length())
+    assert!(len > 4, "array must be a minimum of 5 long");
+    let sections: Vec<String> = (4..array_length())
         .map(|i| i * size_of::<u32>())
         .map(|offset| {
+            assert!(
+                offset < 4095,
+                "assembly can only handle arrays up to 4094 bytes"
+            );
             format!(
                 "//load the current value of the pin into r1
         ldr r1, [r0]                              // 2 cycles
         // store r1 in ARRAY[n]
         str r1, [r2, #{offset}]                   // 2 cycles
         TST r1, #{mask:x}                         // 1 cycle
-        // BEQ .EXIT                                 // 1 cycle (if not breaking)
-        // NOP                                       // 1 cycle
-        NOP
-        NOP
-        NOP
+        // see Bcc in the reference where cc is a condition code
+        // such as EQ which means Z flag is set. The Z flag is set 
+        // by TST if r1 & mask was zero.
+        BEQ .EXIT_READ_PACKETS                    // 1 cycle (if not breaking)
+        NOP                                       // 1 cycle
         // = n*7 cycles after first read
     "
             )

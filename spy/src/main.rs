@@ -4,6 +4,7 @@
 #![feature(array_zip)]
 #![feature(slice_partition_dedup)]
 #![feature(asm_const)]
+#![feature(const_option)]
 
 use defmt::{info, trace};
 use defmt_rtt as _;
@@ -33,6 +34,7 @@ use cortex_m_rt::entry;
 
 // mod debug_pulse;
 mod read_packets;
+mod buffering;
 
 /// Terminates the application and makes `probe-run` exit with exit-code = 0
 pub fn exit() -> ! {
@@ -73,11 +75,12 @@ pub unsafe extern "C" fn CustomReset() -> ! {
 }
 
 // is transformed into immediate in assembly
-const ARRAY_LEN: usize = 1_000;
+const ARRAY_LEN: usize = 1_024;
 // *2 as there are two 'arrays' between which we alternate
-static mut ARRAY1: [u32; ARRAY_LEN] = [5u32; ARRAY_LEN];
-static mut ARRAY2: [u32; ARRAY_LEN] = [5u32; ARRAY_LEN];
-static mut ARRAY_OFFSET: *const u32 = unsafe { ARRAY1.as_ptr() };
+static mut ARRAY_STORE: [[u32; ARRAY_LEN]; 4] = [[5u32; ARRAY_LEN]; 4];
+static mut ARRAY_FIRST: *const u32 = unsafe { ARRAY_STORE.first().unwrap().as_ptr() };
+static mut ARRAY_LAST: *const u32 = unsafe { ARRAY_STORE.last().unwrap().as_ptr() };
+static mut ARRAY_OFFSET: *const u32 = unsafe { ARRAY_FIRST };
 
 static DONE: AtomicBool = AtomicBool::new(false);
 
@@ -178,13 +181,6 @@ enum Sample {
     Low = 0,
 }
 
-/// compact representation of a bit list that
-/// can easily be hashed
-struct Packet {
-    buf: [u32; (ARRAY_LEN + 31) / 32], // if only we had div ceil...
-    bits: u16,
-}
-
 struct PacketIterator<'a> {
     packet: &'a Packet,
     next_bit: u16,
@@ -214,6 +210,13 @@ impl<'a> Iterator for PacketIterator<'a> {
         self.next_bit += 1;
         Some(sample)
     }
+}
+
+/// compact representation of a bit list that
+/// can easily be hashed
+struct Packet {
+    buf: [u32; (ARRAY_LEN + 31) / 32], // if only we had div ceil...
+    bits: u16,
 }
 
 impl Packet {
@@ -291,6 +294,7 @@ impl<const N: usize> Packets<N> {
     }
 
     fn collect(&mut self, data_rdy: &AtomicBool) {
+        let num: usize = 0;
         loop {
             wait_for_new_data(data_rdy);
             let array = unsafe { slice::from_raw_parts(ARRAY_OFFSET, ARRAY_LEN) };

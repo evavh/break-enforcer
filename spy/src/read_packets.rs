@@ -1,4 +1,4 @@
-use crate::{ARRAY2, ARRAY1, ARRAY_OFFSET, DONE};
+use crate::{ARRAY_LAST, ARRAY_FIRST, ARRAY_OFFSET, ARRAY_LEN, DONE};
 use core::arch::global_asm;
 
 pub const DEBUG_GPIO_REG: u32 = 0x40020814;
@@ -18,23 +18,23 @@ global_asm! {
     // ".fnstart",
     // ".cfi_startproc",
 
-    "/* {DEBUG_GPIO_REG} {DEBUG_ON} {DEBUG_OFF} {DONE}*/",
+    "/* {DEBUG_GPIO_REG} {DEBUG_ON} {DEBUG_OFF} {DONE} 
+    {ARRAY_FIRST} {ARRAY_LAST} {ARRAY_LEN_BYTES}*/",
+    /*
     // output debug pulse
-    /* 
-
     "movs r0, #20",
-    "movs r1, #1",
-    "movt r0, #16386",
+    "movs r1, #1",                                  // 1 cycle 
+    "movt r0, #16386",                              // 1 cycle
     "str r1, [r0]",                                 // 2 cycles
     "movs r1, #0",                                  // 1 cycle
     "str r1, [r0]",                                 // 2 cycles
+                                                    // = 8 cycles
     // we see the pulse 292 ns after interrupt should have been triggerd
     // 84 Mhz = 11.9 ns per cycle
     // 25.5 cycles after start of interrupt
     // 1 usb pulse (half wave) at 12 Mhz is 83 nsec or 7 cycles
     // after the first str we are at 3.6 USB cycles
     // we want to be in the middle of a usb cycle when we start reading
-
     */
 
     // 12 cycles past interrupt source
@@ -97,75 +97,66 @@ global_asm! {
     "strb r1, [r3]",                            // 2 cycles
     // = 28 cycles after first read
 
-    // store pin state in ARRAY[4]
-    // and finish setting data rdy boolean to true
-    "ldr r1, [r0]",                              // 2 cycles
-    "str r1, [r2, #16]",                         // 2 cycles
-    "NOP",                                       // 1 cycle
-    "NOP",                                       // 1 cycle
-    "NOP",                                       // 1 cycle
-    // = 35 cycles after first read
-
-
-    // Store gpio value in ARRAY (repeat N-5 times)
+    // Store gpio value in ARRAY (repeat N-4 times)
     // Because:
     //  - the first read is combined with setting up the array pointer
     //  - the second+third read is combined with setting the interrupt as handled
     //  - the fourth+fifth read sets the new data bool to true
 
-
+    /*
     // // debug pulse surrounding ARRAY values
-    // "movs r12, #20",
-    // "movt r12, #16386",
-    // "movs r3, #1",
-    // // this pulse takes 29 micro seconds for 360 reads = 80.5 nsecs per cycle
-    // // thats ~=12 MHz 
-    // "str r3, [r12]",                                 // 2 cycles (debug pin high)
+    "movs r12, #20",
+    "movt r12, #16386",
+    "movs r3, #1",
+    "str r3, [r12]",                                 // 2 cycles (debug pin high)
+    */
     include_str!(concat!(env!("OUT_DIR"), "/loop.s")), // should be N * 7
-    // "movs r3, #0",                                   // 1 cycle
-    // "str r3, [r12]",                                 // 2 cycles (debug pin low)
+    ".EXIT_READ_PACKETS:",
+    /*
+    "movs r3, #0",                                   // 1 cycle
+    "str r3, [r12]",                                 // 2 cycles (debug pin low)
+    */
 
-    ".EXIT:",
     // mark interrupt as no longer pending
     "movw r3, #15380",                           // 1 cycle
     "movt r3, #16385",                           // 1 cycle
     "movs r12, #2",                              // 1 cycle
     "str r12, [r3]",                             // 2 cycles
 
-    "movw r1, :lower16:{ARRAY1}",                // 1 cycle
-    "movt r1, :upper16:{ARRAY1}",                // 1 cycle
+    // add array_len (smaller then 4095) to curr(r2)
+    "ADD r2, r2, #{ARRAY_LEN_BYTES}",
+    // load array_last to r3
+    "movw r3, :lower16:{ARRAY_LAST}",
+    "movt r3, :upper16:{ARRAY_LAST}",
+
+    // check if curr(r2) is larger then array_last(r3)
+    "cmp r3, r2", // subtracts curr(r2) from array_last(r3) set flag if res negative
+    "bpl .CONTINUE", // if array_last(r3) - curr(r2) positive jump to CONTINUE
+
+    // curr > array_last do wrap around and set curr = array_first
+    "movw r2, :lower16:{ARRAY_FIRST}",
+    "movt r2, :upper16:{ARRAY_FIRST}",
+    ".CONTINUE:",
+    // commit curr to ram
     "movw r3, :lower16:{ARRAY_OFFSET}",          // 1 cycle
     "movt r3, :upper16:{ARRAY_OFFSET}",          // 1 cycle
-    // check if ARRAY_OFFSET == ARRAY1
-    "cmp r1, r2", // r2 contains the current array_offset
-    "bne .OFFSET_ARRAY2",                        // 1 + P cycles
-    // base == arry1
-    "movw r1, :lower16:{ARRAY2}",                // 1 cycle
-    "movt r1, :upper16:{ARRAY2}",                // 1 cycle
-    // store mem adress of array2 in array_offset
-    "str r1, [r3]",                              // 2 cycles
-    // return out of the interrupt
-    "bx lr",                                     // 1 + P cycles
+    "str r2, [r3]",
 
-    ".OFFSET_ARRAY2:",
-    // set ARRAY_OFFSET to ARRAY_BASE
-    "movw r1, :lower16:{ARRAY1}",                // 1 cycle
-    "movt r1, :upper16:{ARRAY1}",                // 1 cycle
-    // store mem adress of array1 in array_offset
-    "str r1, [r3]",                              // 2 cycles
-    // return out of the interrupt
+    // return out of interrupt
     "bx lr",                                     // 1 + P cycles
-
 
     // ".cfi_endproc",
     // ".cantunwind",
     // ".fnend",
 
-    ARRAY1 = sym ARRAY1,
-    ARRAY2 = sym ARRAY2,
+    ARRAY_FIRST = sym ARRAY_FIRST,
+    ARRAY_LAST = sym ARRAY_LAST,
     ARRAY_OFFSET = sym ARRAY_OFFSET,
+    ARRAY_LEN_BYTES = const ARRAY_LEN_BYTES,
     DONE = sym DONE,
     DEBUG_GPIO_REG = const DEBUG_GPIO_REG,
     DEBUG_ON = const DEBUG_ON,
     DEBUG_OFF = const DEBUG_OFF,
 }
+
+const ARRAY_LEN_BYTES: usize = ARRAY_LEN * 4;
