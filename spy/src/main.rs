@@ -7,7 +7,7 @@
 #![feature(const_option)]
 #![feature(generic_const_exprs)]
 
-use defmt::{info, trace, warn};
+use defmt::{info, warn};
 use defmt_rtt as _;
 use fugit::RateExtU32;
 use hal::{
@@ -146,9 +146,9 @@ fn main() -> ! {
 
     // wait for 1 seconds (assuming 84Mhz)
     // cortex_m::asm::delay(84 * 1_000_000 * 1);
-    packets.collect(reader);
-    info!("{}", packets.list);
-    info!("{}", packets.hashes);
+    // packets.collect(reader);
+    // info!("{}", packets.list);
+    // info!("{}", packets.hashes);
 
     loop {}
 }
@@ -215,7 +215,8 @@ where
     /// check that before calling this
     fn append(&mut self, candidate: &[u32]) {
         let packet = &mut self.list[self.free];
-        for register in candidate {
+        let packet_len = candidate[0] as usize;
+        for register in &candidate[1..packet_len] {
             let sample = mask::<1>(*register);
             packet.push(sample)
         }

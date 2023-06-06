@@ -73,8 +73,11 @@ global_asm! {
     // store pin state in ARRAY[1]
     // and prepare to set interrupt pending to false
     "ldr r3, [r0]",                              // 2 cycles
-    "str r1, [r2]",                              // 2 cycles
-    "str r3, [r2, #4]",                          // 2 cycles
+    // we start at index 4 as the 0th 32 bits are used 
+    // for the length of the packet 
+    // see beyond label: `EXIT_READ_PACKETS`
+    "str r1, [r2, #4]",                          // 2 cycles
+    "str r3, [r2, #8]",                          // 2 cycles
     "NOP",
     // = 14 cycles after first read
 
@@ -85,7 +88,7 @@ global_asm! {
     // set interrupt pending to 2/confirm handled
     // // TODO: change this to increment NEXT static <dvdsk noreply@davidsk.dev>
     "ldr r1, [r0]",                              // 2 cycles
-    "str r1, [r2, #8]",                          // 2 cycles
+    "str r1, [r2, #12]",                          // 2 cycles
     "movw r3, :lower16:{NEXT}",                  // 1 cycle
     "movt r3, :upper16:{NEXT}",                  // 1 cycle
     "NOP",                                       // 1 cycle
@@ -95,8 +98,8 @@ global_asm! {
     // store pin state in ARRAY[3]
     // and prepare to set data rdy boolean to true
     "ldr r1, [r0]",                              // 2 cycles
-    "str r1, [r2, #12]",                         // 2 cycles
-    // set DONE (r3) to 1 (r12)
+    "str r1, [r2, #16]",                         // 2 cycles
+    // load NEXT and add 1
     "ldr r12, [r3]",                             // 2 cycles
     "ADD r12, r12, #1",                          // 1 cycle
     // = 28 cycles after first read
@@ -105,10 +108,11 @@ global_asm! {
     // store pin state in ARRAY[4]
     // and prepare to set data rdy boolean to true
     "ldr r1, [r0]",                              // 2 cycles
-    "str r1, [r2, #16]",                         // 2 cycles
-    // set DONE (r3) to 1 (r12)
+    "str r1, [r2, #20]",                         // 2 cycles
+    // commit NEXT to memory
     "str r12, [r3]",                             // 2 cycles
-    "NOP",                                       // 1 cycle
+    // set index to 4
+    "movw r3, #4",                               // 1 cycle
     // = 28 cycles after first read
 
 
@@ -120,17 +124,21 @@ global_asm! {
 
    
     // // debug pulse surrounding ARRAY values
-    "movs r12, #20",
-    "movt r12, #16386",
-    "movs r3, #1",
-    "str r3, [r12]",                                 // 2 cycles (debug pin high)
+    // // WARNING: will fuck up index
+    // "movs r12, #20",
+    // "movt r12, #16386",
+    // "movs r3, #1",
+    // "str r3, [r12]",                                 // 2 cycles (debug pin high)
     
     include_str!(concat!(env!("OUT_DIR"), "/loop.s")), // should be N * 7
     ".EXIT_READ_PACKETS:",
     
-    "movs r3, #0",                                   // 1 cycle
-    "str r3, [r12]",                                 // 2 cycles (debug pin low)
-    
+    // // debug pulse end
+    // "movs r3, #0",                                   // 1 cycle
+    // "str r3, [r12]",                                 // 2 cycles (debug pin low)
+
+    // store length of packet(r3) in array[0]
+    "str r3, [r2, #0]",                          // 2 cycles
 
     // mark interrupt as no longer pending
     "movw r3, #15380",                           // 1 cycle
