@@ -14,8 +14,8 @@ fn main() {
 fn loop_assembly() -> String {
     let mask = 0b0000_0111;
     let len = array_length();
-    assert!(len > 4, "array must be a minimum of 5 long");
-    let sections: Vec<String> = (4..array_length())
+    assert!(len > 5, "array must be a minimum of 5 long");
+    let sections: Vec<String> = (5..array_length())
         .map(|i| i * size_of::<u32>())
         .map(|offset| {
             assert!(

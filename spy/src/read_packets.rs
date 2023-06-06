@@ -1,5 +1,9 @@
-use crate::{ARRAY_LAST, ARRAY_FIRST, ARRAY_OFFSET, ARRAY_LEN, DONE};
+use crate::{ARRAY_LEN, ARRAY_STORE, NEXT};
 use core::arch::global_asm;
+
+static mut ARRAY_FIRST: *const u32 = unsafe { ARRAY_STORE.first().unwrap().as_ptr() };
+static mut ARRAY_LAST: *const u32 = unsafe { ARRAY_STORE.last().unwrap().as_ptr() };
+static mut ARRAY_OFFSET: *const u32 = unsafe { ARRAY_FIRST };
 
 pub const DEBUG_GPIO_REG: u32 = 0x40020814;
 // debug pin (pa0) is only pin in GPIOA (except clock pin which ignores this)
@@ -18,12 +22,12 @@ global_asm! {
     // ".fnstart",
     // ".cfi_startproc",
 
-    "/* {DEBUG_GPIO_REG} {DEBUG_ON} {DEBUG_OFF} {DONE} 
+    "/* {DEBUG_GPIO_REG} {DEBUG_ON} {DEBUG_OFF}
     {ARRAY_FIRST} {ARRAY_LAST} {ARRAY_LEN_BYTES}*/",
     /*
     // output debug pulse
     "movs r0, #20",
-    "movs r1, #1",                                  // 1 cycle 
+    "movs r1, #1",                                  // 1 cycle
     "movt r0, #16386",                              // 1 cycle
     "str r1, [r0]",                                 // 2 cycles
     "movs r1, #0",                                  // 1 cycle
@@ -71,7 +75,7 @@ global_asm! {
     "ldr r3, [r0]",                              // 2 cycles
     "str r1, [r2]",                              // 2 cycles
     "str r3, [r2, #4]",                          // 2 cycles
-    "NOP", 
+    "NOP",
     // = 14 cycles after first read
 
 
@@ -79,13 +83,13 @@ global_asm! {
     // store pin state in ARRAY[2]
     // and finish setting interrupt pending to false
     // set interrupt pending to 2/confirm handled
+    // // TODO: change this to increment NEXT static <dvdsk noreply@davidsk.dev>
     "ldr r1, [r0]",                              // 2 cycles
     "str r1, [r2, #8]",                          // 2 cycles
-    "movw r3, :lower16:{DONE}",                  // 1 cycle
-    "movt r3, :upper16:{DONE}",                  // 1 cycle
+    "movw r3, :lower16:{NEXT}",                  // 1 cycle
+    "movt r3, :upper16:{NEXT}",                  // 1 cycle
     "NOP",                                       // 1 cycle
     // = 21 cycles after first read
-
 
 
     // store pin state in ARRAY[3]
@@ -93,9 +97,20 @@ global_asm! {
     "ldr r1, [r0]",                              // 2 cycles
     "str r1, [r2, #12]",                         // 2 cycles
     // set DONE (r3) to 1 (r12)
-    "mov r1, #1",                               // 1 cycle
-    "strb r1, [r3]",                            // 2 cycles
+    "ldr r12, [r3]",                             // 2 cycles
+    "ADD r12, r12, #1",                          // 1 cycle
     // = 28 cycles after first read
+
+
+    // store pin state in ARRAY[4]
+    // and prepare to set data rdy boolean to true
+    "ldr r1, [r0]",                              // 2 cycles
+    "str r1, [r2, #16]",                         // 2 cycles
+    // set DONE (r3) to 1 (r12)
+    "str r12, [r3]",                             // 2 cycles
+    "NOP",                                       // 1 cycle
+    // = 28 cycles after first read
+
 
     // Store gpio value in ARRAY (repeat N-4 times)
     // Because:
@@ -103,19 +118,19 @@ global_asm! {
     //  - the second+third read is combined with setting the interrupt as handled
     //  - the fourth+fifth read sets the new data bool to true
 
-    /*
+   
     // // debug pulse surrounding ARRAY values
     "movs r12, #20",
     "movt r12, #16386",
     "movs r3, #1",
     "str r3, [r12]",                                 // 2 cycles (debug pin high)
-    */
+    
     include_str!(concat!(env!("OUT_DIR"), "/loop.s")), // should be N * 7
     ".EXIT_READ_PACKETS:",
-    /*
+    
     "movs r3, #0",                                   // 1 cycle
     "str r3, [r12]",                                 // 2 cycles (debug pin low)
-    */
+    
 
     // mark interrupt as no longer pending
     "movw r3, #15380",                           // 1 cycle
@@ -153,7 +168,7 @@ global_asm! {
     ARRAY_LAST = sym ARRAY_LAST,
     ARRAY_OFFSET = sym ARRAY_OFFSET,
     ARRAY_LEN_BYTES = const ARRAY_LEN_BYTES,
-    DONE = sym DONE,
+    NEXT = sym NEXT,
     DEBUG_GPIO_REG = const DEBUG_GPIO_REG,
     DEBUG_ON = const DEBUG_ON,
     DEBUG_OFF = const DEBUG_OFF,

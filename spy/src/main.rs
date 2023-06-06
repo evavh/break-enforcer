@@ -5,8 +5,9 @@
 #![feature(slice_partition_dedup)]
 #![feature(asm_const)]
 #![feature(const_option)]
+#![feature(generic_const_exprs)]
 
-use defmt::{info, trace};
+use defmt::{info, trace, warn};
 use defmt_rtt as _;
 use fugit::RateExtU32;
 use hal::{
@@ -20,21 +21,19 @@ use stm32f4xx_hal as hal;
 // global logger
 use panic_probe as _;
 
-use crate::hal::prelude::_stm32f4xx_hal_gpio_ExtiPin;
+use crate::{decoder::mask, hal::prelude::_stm32f4xx_hal_gpio_ExtiPin};
 
-use core::{
-    arch::asm,
-    array,
-    hash::Hasher,
-    hint::unreachable_unchecked,
-    ptr, slice,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use buffering::SwapBufReader;
+use core::{arch::asm, array, ptr, sync::atomic::AtomicUsize};
 use cortex_m_rt::entry;
 
 // mod debug_pulse;
 mod read_packets;
-mod buffering;
+
+mod packet;
+use packet::Packet;
+
+mod decoder;
 
 /// Terminates the application and makes `probe-run` exit with exit-code = 0
 pub fn exit() -> ! {
@@ -74,15 +73,9 @@ pub unsafe extern "C" fn CustomReset() -> ! {
     Reset()
 }
 
-// is transformed into immediate in assembly
-const ARRAY_LEN: usize = 1_024;
-// *2 as there are two 'arrays' between which we alternate
-static mut ARRAY_STORE: [[u32; ARRAY_LEN]; 4] = [[5u32; ARRAY_LEN]; 4];
-static mut ARRAY_FIRST: *const u32 = unsafe { ARRAY_STORE.first().unwrap().as_ptr() };
-static mut ARRAY_LAST: *const u32 = unsafe { ARRAY_STORE.last().unwrap().as_ptr() };
-static mut ARRAY_OFFSET: *const u32 = unsafe { ARRAY_FIRST };
-
-static DONE: AtomicBool = AtomicBool::new(false);
+const ARRAY_LEN: usize = 200;
+static mut ARRAY_STORE: [[u32; ARRAY_LEN]; 4] = [[0; ARRAY_LEN]; 4];
+static NEXT: AtomicUsize = AtomicUsize::new(0);
 
 #[entry]
 fn main() -> ! {
@@ -137,6 +130,12 @@ fn main() -> ! {
     usb_data_plus.trigger_on_edge(&mut dp.EXTI, gpio::Edge::Falling);
     let interrupt_number = usb_data_plus.interrupt();
 
+    let reader = SwapBufReader {
+        next: &NEXT,
+        raw: unsafe { &ARRAY_STORE },
+    };
+    let mut packets: Packets<50, ARRAY_LEN> = Packets::new();
+
     // clear pending interrupts on usb gpio
     cortex_m::peripheral::NVIC::unpend(interrupt_number);
     unsafe {
@@ -145,121 +144,64 @@ fn main() -> ! {
         core.NVIC.set_priority(usb_data_plus.interrupt(), 0); // set highest prio
     }
 
-    // wait for 5 seconds (assuming 84Mhz)
-    cortex_m::asm::delay(84 * 1_000_000 * 5);
-    let mut packets: Packets<50> = Packets::new();
-    packets.collect(&DONE);
+    // wait for 1 seconds (assuming 84Mhz)
+    // cortex_m::asm::delay(84 * 1_000_000 * 1);
+    packets.collect(reader);
     info!("{}", packets.list);
     info!("{}", packets.hashes);
 
     loop {}
 }
 
-#[inline]
-fn mask<const P: u16>(register: u32) -> Sample {
-    // shift the bit representing the pin of intrested to position 0.
-    let port = register >> P;
-    // make everything else 1 becomes zero
-    let port = port & 1;
-    match port {
-        0 => Sample::Low,
-        1 => Sample::High,
-        _ => unsafe { unreachable_unchecked() },
+struct PacketDecoder<'a, const N: usize, const LEN: usize>
+where
+    [(); (LEN + 31) / 32]:,
+{
+    packets: &'a mut Packets<N, LEN>,
+    free_before_attempt: usize,
+    lost: usize,
+}
+
+impl<'a, const N: usize, const LEN: usize> PacketDecoder<'a, N, LEN>
+where
+    [(); (LEN + 31) / 32]:,
+{
+    fn full(&self) -> bool {
+        self.packets.free == self.packets.list.len()
     }
 }
 
-fn wait_for_new_data(data_rdy: &AtomicBool) {
-    while !data_rdy
-        .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
-        .is_ok()
-    {}
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Sample {
-    High = 1,
-    Low = 0,
-}
-
-struct PacketIterator<'a> {
-    packet: &'a Packet,
-    next_bit: u16,
-}
-
-impl<'a> IntoIterator for &'a Packet {
-    type Item = Sample;
-    type IntoIter = PacketIterator<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        PacketIterator {
-            packet: self,
-            next_bit: 0,
-        }
+impl<'a, const N: usize, const LEN: usize> buffering::DataHandler<LEN> for PacketDecoder<'a, N, LEN>
+where
+    [(); (LEN + 31) / 32]:,
+{
+    fn attempt(&mut self, data: &[u32; LEN]) {
+        self.free_before_attempt = self.packets.free;
+        self.packets.append(data);
+    }
+    fn mark_success(&mut self) {}
+    fn mark_corrupt(&mut self) {
+        self.packets.free = self.free_before_attempt;
+        self.packets.list[self.packets.free].reset();
+    }
+    fn lost(&mut self, n: usize) {
+        self.lost += n;
     }
 }
 
-impl<'a> Iterator for PacketIterator<'a> {
-    type Item = Sample;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.next_bit >= self.packet.bits {
-            return None;
-        }
-
-        let sample = self.packet.get(self.next_bit);
-        self.next_bit += 1;
-        Some(sample)
-    }
-}
-
-/// compact representation of a bit list that
-/// can easily be hashed
-struct Packet {
-    buf: [u32; (ARRAY_LEN + 31) / 32], // if only we had div ceil...
-    bits: u16,
-}
-
-impl Packet {
-    const fn new() -> Self {
-        Self {
-            buf: [0u32; (ARRAY_LEN + 31) / 32],
-            bits: 0,
-        }
-    }
-
-    fn get(&self, idx: u16) -> Sample {
-        let byte_idx = idx / 32;
-        let bit_idx = idx % 32;
-        let word = self.buf[byte_idx as usize];
-        let bit = (word >> bit_idx) & 1;
-        Sample::from_bit(bit)
-    }
-
-    fn push(&mut self, val: Sample) {
-        let byte_idx = self.bits / 32;
-        let bit_idx = self.bits % 32;
-        let mask = (val as u32) << bit_idx;
-        self.buf[byte_idx as usize] |= mask;
-        self.bits += 1;
-    }
-
-    fn hash(&self) -> usize {
-        let mut hash = rustc_hash::FxHasher::default();
-        for word in self.buf {
-            hash.write_u32(word);
-        }
-        // on 32 bit platforms this is a 32 bit hasher
-        hash.finish() as usize
-    }
-}
-
-struct Packets<const N: usize> {
-    list: [Packet; N],
+struct Packets<const N: usize, const LEN: usize>
+where
+    [(); (LEN + 31) / 32]:,
+{
+    list: [Packet<LEN>; N],
     hashes: [u32; N],
     free: usize,
 }
 
-impl<const N: usize> Packets<N> {
+impl<const N: usize, const LEN: usize> Packets<N, LEN>
+where
+    [(); (LEN + 31) / 32]:,
+{
     fn new() -> Self {
         Packets {
             list: array::from_fn(|_| Packet::new()),
@@ -268,67 +210,31 @@ impl<const N: usize> Packets<N> {
         }
     }
 
-    fn append(&mut self, candidate: &[u32]) -> Result<(), &'static str> {
+    /// # Panics
+    /// function panics if packets is full. You need to
+    /// check that before calling this
+    fn append(&mut self, candidate: &[u32]) {
         let packet = &mut self.list[self.free];
-        let mut sum = 0;
         for register in candidate {
             let sample = mask::<1>(*register);
-            sum += sample as u16;
             packet.push(sample)
         }
-        let hash = packet.hash() as u32;
-        let known = self.hashes.contains(&hash);
-        assert_ne!(sum, 0);
-        if known {
-            trace!("known package, hash: {}", hash);
-            return Ok(());
-        }
-
-        self.hashes[self.free] = hash;
         self.free += 1;
-        if self.free >= N {
-            Err("no more space for new packets")
-        } else {
-            Ok(())
-        }
     }
 
-    fn collect(&mut self, data_rdy: &AtomicBool) {
-        let num: usize = 0;
-        loop {
-            wait_for_new_data(data_rdy);
-            let array = unsafe { slice::from_raw_parts(ARRAY_OFFSET, ARRAY_LEN) };
-            if let Err(_) = self.append(array) {
-                info!("Packets storage is full");
-                break;
-            }
+    fn collect<const DEPTH: usize>(&mut self, reader: SwapBufReader<LEN, DEPTH>) {
+        let mut num: usize = 0;
+        let mut decoder = PacketDecoder {
+            free_before_attempt: 0,
+            packets: self,
+            lost: 0,
+        };
+        while !decoder.full() {
+            // should hang until there is data
+            reader.read((), &mut num, &mut decoder);
         }
-    }
-}
-
-impl defmt::Format for Packet {
-    fn format(&self, fmt: defmt::Formatter) {
-        defmt::write!(fmt, "\n[");
-        for sample in self {
-            defmt::write!(fmt, "{}", sample.char());
-        }
-        defmt::write!(fmt, "]\n");
-    }
-}
-
-impl Sample {
-    fn char(&self) -> char {
-        match self {
-            Sample::High => '1',
-            Sample::Low => '0',
-        }
-    }
-
-    fn from_bit(bit: u32) -> Self {
-        if bit == 0 {
-            Sample::Low
-        } else {
-            Sample::High
+        if decoder.lost > 0 {
+            warn!("Lost {} packages", decoder.lost);
         }
     }
 }

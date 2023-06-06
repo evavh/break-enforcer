@@ -39,6 +39,7 @@ checksum = "24a6904aef64d73cf10ab17ebace7befb918b82164785cb89907993be7f83813"
 name = "break-spy"
 version = "0.1.0"
 dependencies = [
+ "buffering",
  "cortex-m",
  "cortex-m-rt",
  "defmt",
@@ -50,6 +51,10 @@ dependencies = [
  "rustc-hash",
  "stm32f4xx-hal",
 ]
+
+[[package]]
+name = "buffering"
+version = "0.1.0"
 
 [[package]]
 name = "cortex-m"
