@@ -25,6 +25,7 @@ features = ["stm32f401", "defmt"] # replace the model of your microcontroller he
 
 [profile.release]
 lto = true
+opt-level = 3
 codegen-units = 1
 panic = "abort"
 debug = 2
