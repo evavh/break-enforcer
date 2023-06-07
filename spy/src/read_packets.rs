@@ -5,11 +5,6 @@ static mut ARRAY_FIRST: *const u32 = unsafe { ARRAY_STORE.first().unwrap().as_pt
 static mut ARRAY_LAST: *const u32 = unsafe { ARRAY_STORE.last().unwrap().as_ptr() };
 static mut ARRAY_OFFSET: *const u32 = unsafe { ARRAY_FIRST };
 
-pub const DEBUG_GPIO_REG: u32 = 0x40020814;
-// debug pin (pa0) is only pin in GPIOA (except clock pin which ignores this)
-pub const DEBUG_ON: u32 = 1;
-pub const DEBUG_OFF: u32 = 0;
-
 // Note: only use R0,R1,R2,R3 and R12. Others are not saved by the
 // mcu before entering the interrupt.
 global_asm! {
@@ -19,11 +14,6 @@ global_asm! {
     ".type EXTI1,%function",
     ".thumb_func",
 "EXTI1:",
-    // ".fnstart",
-    // ".cfi_startproc",
-
-    "/* {DEBUG_GPIO_REG} {DEBUG_ON} {DEBUG_OFF}
-    {ARRAY_FIRST} {ARRAY_LAST} {ARRAY_LEN_BYTES}*/",
     /*
     // output debug pulse
     "movs r0, #20",
@@ -43,21 +33,15 @@ global_asm! {
 
     // 12 cycles past interrupt source
 
-    // // Set the pin state adress in r0
-    // "movw r0, #:lower16:{GPIO_STATE_PTR}",       // 1 cycle
-    // "movt r0, #:upper16:{GPIO_STATE_PTR}",       // 1 cycle
+    // Set the pin state adress in r0
     "movw r0, #1040",
     "movt r0, #16386", // TODO get this in here as a const?
-
     // add nops so we read in the center of the usb clock
     "NOP", // 1 cycle
     // reads the pin state ASAP
     // this is cycle 17 past interrupt source
     // that means 17/7 ~= 2.5
     "ldr r1, [r0]",                              // 2 cycles
-
-    // // disable all interrupts
-    // "CPSID",
     "NOP",
 
     // build the pointer to ARRAY in r2 so we can store it
@@ -95,6 +79,7 @@ global_asm! {
     // = 21 cycles after first read
 
 
+
     // store pin state in ARRAY[3]
     // and prepare to set data rdy boolean to true
     "ldr r1, [r0]",                              // 2 cycles
@@ -103,6 +88,7 @@ global_asm! {
     "ldr r12, [r3]",                             // 2 cycles
     "ADD r12, r12, #1",                          // 1 cycle
     // = 28 cycles after first read
+
 
 
     // store pin state in ARRAY[4]
@@ -115,13 +101,6 @@ global_asm! {
     "movw r3, #4",                               // 1 cycle
     // = 28 cycles after first read
 
-
-    // Store gpio value in ARRAY (repeat N-4 times)
-    // Because:
-    //  - the first read is combined with setting up the array pointer
-    //  - the second+third read is combined with setting the interrupt as handled
-    //  - the fourth+fifth read sets the new data bool to true
-
    
     // // debug pulse surrounding ARRAY values
     // // WARNING: will fuck up index
@@ -130,15 +109,24 @@ global_asm! {
     // "movs r3, #1",
     // "str r3, [r12]",                                 // 2 cycles (debug pin high)
     
+
+    // Store gpio value in ARRAY (repeat N-4 times)
+    // Because:
+    //  - the first read is combined with setting up the array pointer
+    //  - the second+third read is combined with setting the interrupt as handled
+    //  - the fourth+fifth read sets the new data bool to true
     include_str!(concat!(env!("OUT_DIR"), "/loop.s")), // should be N * 7
     ".EXIT_READ_PACKETS:",
     
+
     // // debug pulse end
     // "movs r3, #0",                                   // 1 cycle
     // "str r3, [r12]",                                 // 2 cycles (debug pin low)
 
+
     // store length of packet(r3) in array[0]
     "str r3, [r2, #0]",                          // 2 cycles
+
 
     // mark interrupt as no longer pending
     "movw r3, #15380",                           // 1 cycle
@@ -159,6 +147,7 @@ global_asm! {
     // curr > array_last do wrap around and set curr = array_first
     "movw r2, :lower16:{ARRAY_FIRST}",
     "movt r2, :upper16:{ARRAY_FIRST}",
+
     ".CONTINUE:",
     // commit curr to ram
     "movw r3, :lower16:{ARRAY_OFFSET}",          // 1 cycle
@@ -168,18 +157,11 @@ global_asm! {
     // return out of interrupt
     "bx lr",                                     // 1 + P cycles
 
-    // ".cfi_endproc",
-    // ".cantunwind",
-    // ".fnend",
-
     ARRAY_FIRST = sym ARRAY_FIRST,
     ARRAY_LAST = sym ARRAY_LAST,
     ARRAY_OFFSET = sym ARRAY_OFFSET,
     ARRAY_LEN_BYTES = const ARRAY_LEN_BYTES,
     NEXT = sym NEXT,
-    DEBUG_GPIO_REG = const DEBUG_GPIO_REG,
-    DEBUG_ON = const DEBUG_ON,
-    DEBUG_OFF = const DEBUG_OFF,
 }
 
 const ARRAY_LEN_BYTES: usize = ARRAY_LEN * 4;
