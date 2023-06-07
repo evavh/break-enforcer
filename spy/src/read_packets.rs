@@ -1,4 +1,4 @@
-use crate::{ARRAY_LEN, ARRAY_STORE, NEXT};
+use crate::{ARRAY_BYTES, ARRAY_STORE, NEXT};
 use core::arch::global_asm;
 
 static mut ARRAY_FIRST: *const u8 = unsafe { ARRAY_STORE.first().unwrap().as_ptr() };
@@ -133,7 +133,7 @@ global_asm! {
     "str r12, [r3]",                             // 2 cycles
 
     // add array_len (smaller then 4095) to curr(r2)
-    "ADD r2, r2, #{ARRAY_LEN_BYTES}",
+    "ADD r2, r2, #{ARRAY_BYTES}",
     // load array_last to r3
     "movw r3, :lower16:{ARRAY_LAST}",
     "movt r3, :upper16:{ARRAY_LAST}",
@@ -161,8 +161,7 @@ global_asm! {
     ARRAY_OFFSET = sym ARRAY_OFFSET,
     ARRAY_FIRST = sym ARRAY_FIRST,
     ARRAY_LAST = sym ARRAY_LAST,
-    ARRAY_LEN_BYTES = const ARRAY_LEN_BYTES,
+    ARRAY_BYTES = const ARRAY_BYTES,
     NEXT = sym NEXT,
 }
 
-const ARRAY_LEN_BYTES: usize = ARRAY_LEN * core::mem::size_of::<u32>();

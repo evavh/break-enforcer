@@ -74,8 +74,9 @@ pub unsafe extern "C" fn CustomReset() -> ! {
 }
 
 const ARRAY_LEN: usize = 200;
+const ARRAY_BYTES: usize = ARRAY_LEN + core::mem::size_of::<u32>();
 // first element is u32 storing the length of the packet
-static mut ARRAY_STORE: [[u8; ARRAY_LEN + core::mem::size_of::<u32>()]; 4] =
+static mut ARRAY_STORE: [[u8; ARRAY_BYTES]; 4] =
     [[0; ARRAY_LEN + core::mem::size_of::<u32>()]; 4];
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
@@ -218,9 +219,9 @@ where
     /// check that before calling this
     fn append(&mut self, candidate: &[u8]) {
         let packet = &mut self.list[self.free];
-        info!("{}", candidate);
+        // info!("{}", candidate);
         let packet_len = u32::from_ne_bytes(candidate[0..4].try_into().unwrap()) as usize;
-        for register in &candidate[4..packet_len] {
+        for register in &candidate[4..4+packet_len] {
             let sample = mask::<1>(*register);
             packet.push(sample)
         }
