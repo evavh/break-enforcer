@@ -1,4 +1,4 @@
-use crate::{ARRAY_LEN, ARRAY_STORE, NEXT, ARRAY_DEPTH};
+use crate::{ARRAY_LEN, ARRAY_STORE, NEXT};
 use core::arch::global_asm;
 
 static mut ARRAY_FIRST: *const u32 = unsafe { ARRAY_STORE.first().unwrap().as_ptr() };
@@ -54,7 +54,7 @@ global_asm! {
 
 
 
-    // store pin state in ARRAY[1]
+    // store pin states in ARRAY[1] and ARRAY[2]
     // and prepare to set interrupt pending to false
     "ldr r3, [r0]",                              // 2 cycles
     // we start at index 4 as the 0th 32 bits are used 
@@ -67,7 +67,7 @@ global_asm! {
 
 
 
-    // store pin state in ARRAY[2]
+    // store pin state in ARRAY[3]
     // increment NEXT static
     "ldr r1, [r0]",                              // 2 cycles
     "str r1, [r2, #16]",                         // 2 cycles
@@ -78,10 +78,10 @@ global_asm! {
 
 
 
-    // store pin state in ARRAY[3]
+    // store pin state in ARRAY[4]
     // and prepare to set data rdy boolean to true
     "ldr r1, [r0]",                              // 2 cycles
-    "str r1, [r2, #16]",                         // 2 cycles
+    "str r1, [r2, #20]",                         // 2 cycles
     // load NEXT and add 1
     "ldr r12, [r3]",                             // 2 cycles
     "ADD r12, r12, #1",                          // 1 cycle
@@ -89,10 +89,10 @@ global_asm! {
 
 
 
-    // store pin state in ARRAY[4]
+    // store pin state in ARRAY[5]
     // and prepare to set data rdy boolean to true
     "ldr r1, [r0]",                              // 2 cycles
-    "str r1, [r2, #20]",                         // 2 cycles
+    "str r1, [r2, #24]",                         // 2 cycles
     // commit NEXT to memory
     "str r12, [r3]",                             // 2 cycles
     // set index to 4
@@ -122,8 +122,8 @@ global_asm! {
     // "str r3, [r12]",                                 // 2 cycles (debug pin low)
 
 
-    // // store length of packet(r3) in array[0]
-    // "str r3, [r2, #0]",                          // 2 cycles
+    // store length of packet(r3) in array[0]
+    "str r3, [r2, #0]",                          // 2 cycles
 
 
     // mark interrupt as no longer pending

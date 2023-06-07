@@ -146,9 +146,9 @@ fn main() -> ! {
 
     // wait for 1 seconds (assuming 84Mhz)
     // cortex_m::asm::delay(84 * 1_000_000 * 1);
-    // packets.collect(reader);
-    // info!("{}", packets.list);
-    // info!("{}", packets.hashes);
+    packets.collect(reader);
+    info!("{}", packets.list);
+    info!("{}", packets.hashes);
 
     loop {}
 }
