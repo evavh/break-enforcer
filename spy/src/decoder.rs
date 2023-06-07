@@ -1,7 +1,7 @@
 use core::hint::unreachable_unchecked;
 
 #[inline]
-pub(super) fn mask<const P: u16>(register: u32) -> Sample {
+pub(super) fn mask<const P: u8>(register: u8) -> Sample {
     // shift the bit representing the pin of intrested to position 0.
     let port = register >> P;
     // make everything else 1 becomes zero

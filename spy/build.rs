@@ -14,9 +14,9 @@ fn main() {
 fn loop_assembly() -> String {
     let mask = 0b0000_0111;
     let len = array_length();
-    assert!(len > 7, "array must be a minimum of 6 long");
-    let sections: Vec<String> = (7..array_length())
-        .map(|i| i * size_of::<u32>())
+    assert!(len >= 5, "array must be a minimum of 5 long");
+    let sections: Vec<String> = (5..array_length())
+        .map(|i| i + size_of::<u32>())
         .map(|offset| {
             assert!(
                 offset < 4095,
@@ -26,7 +26,7 @@ fn loop_assembly() -> String {
                 "//load the current value of the pin into r1
         ldr r1, [r0]                              // 2 cycles
         // store r1 in ARRAY[n]
-        str r1, [r2, #{offset}]                   // 2 cycles
+        strb r1, [r2, #{offset}]                   // 2 cycles
         TST r1, #{mask:x}                         // 1 cycle
         // see Bcc in the reference where cc is a condition code
         // such as EQ which means Z flag is set. The Z flag is set 

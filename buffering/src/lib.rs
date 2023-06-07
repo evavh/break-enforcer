@@ -18,18 +18,19 @@ pub use decoder::DataHandler;
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-pub struct SwapBufReader<'a, const LEN: usize, const DEPTH: usize> {
-    pub raw: &'a [[u32; LEN]; DEPTH],
+pub struct SwapBufReader<'a, const SIZE: usize, const DEPTH: usize> {
+    pub raw: &'a [[u8; SIZE]; DEPTH],
     pub next: &'a AtomicUsize,
 }
 
-impl<'a, const LEN: usize, const DEPTH: usize> SwapBufReader<'a, LEN, DEPTH> {
+impl<'a, const SIZE: usize, const DEPTH: usize> SwapBufReader<'a, SIZE, DEPTH> {
     /// read_next needs to be init to 0 first time this is called
+    /// note LEN =< SIZE
     pub fn read(
         &self,
         mut fake_irq: impl FakeIrqList,
         read_upto: &mut usize,
-        reader: &mut impl DataHandler<LEN>,
+        reader: &mut impl DataHandler<SIZE>,
     ) {
         // overflow/wrap around can be ignored as we expect
         // a reboot before 40 days of activity

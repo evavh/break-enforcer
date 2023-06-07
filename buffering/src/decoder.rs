@@ -1,8 +1,8 @@
-pub trait DataHandler<const LEN: usize> {
+pub trait DataHandler<const SIZE: usize> {
     // try to read the data, this can be pre-empted by an
     // interrupt. Do not process the data before its marked
     // complete
-    fn attempt(&mut self, data: &[u32; LEN]);
+    fn attempt(&mut self, data: &[u8; SIZE]);
     // last read was done before another interrupt fired
     // it is not corrupt and can be processed
     fn mark_success(&mut self);
@@ -12,7 +12,7 @@ pub trait DataHandler<const LEN: usize> {
 }
 
 pub struct CopyDecoder<const LEN: usize> {
-    pub buffer: [u32; LEN],
+    pub buffer: [u8; LEN],
     pub done: bool, // default false
     pub lost: usize,
 }
@@ -20,7 +20,7 @@ pub struct CopyDecoder<const LEN: usize> {
 impl<const LEN: usize> Default for CopyDecoder<LEN> {
     fn default() -> Self {
         Self {
-            buffer: [0u32; LEN],
+            buffer: [0u8; LEN],
             done: false,
             lost: 0,
         }
@@ -28,7 +28,7 @@ impl<const LEN: usize> Default for CopyDecoder<LEN> {
 }
 
 impl<const LEN: usize> DataHandler<LEN> for CopyDecoder<LEN> {
-    fn attempt(&mut self, data: &[u32; LEN]) {
+    fn attempt(&mut self, data: &[u8; LEN]) {
         self.buffer = *data
     }
 

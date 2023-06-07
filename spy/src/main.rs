@@ -74,7 +74,9 @@ pub unsafe extern "C" fn CustomReset() -> ! {
 }
 
 const ARRAY_LEN: usize = 200;
-static mut ARRAY_STORE: [[u32; ARRAY_LEN]; 4] = [[0; ARRAY_LEN]; 4];
+// first element is u32 storing the length of the packet
+static mut ARRAY_STORE: [[u8; ARRAY_LEN + core::mem::size_of::<u32>()]; 4] =
+    [[0; ARRAY_LEN + core::mem::size_of::<u32>()]; 4];
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
 #[entry]
@@ -171,11 +173,12 @@ where
     }
 }
 
-impl<'a, const N: usize, const LEN: usize> buffering::DataHandler<LEN> for PacketDecoder<'a, N, LEN>
+impl<'a, const N: usize, const LEN: usize, const SIZE: usize> buffering::DataHandler<SIZE>
+    for PacketDecoder<'a, N, LEN>
 where
     [(); (LEN + 31) / 32]:,
 {
-    fn attempt(&mut self, data: &[u32; LEN]) {
+    fn attempt(&mut self, data: &[u8; SIZE]) {
         self.free_before_attempt = self.packets.free;
         self.packets.append(data);
     }
@@ -213,17 +216,18 @@ where
     /// # Panics
     /// function panics if packets is full. You need to
     /// check that before calling this
-    fn append(&mut self, candidate: &[u32]) {
+    fn append(&mut self, candidate: &[u8]) {
         let packet = &mut self.list[self.free];
-        let packet_len = candidate[0] as usize;
-        for register in &candidate[1..packet_len] {
+        info!("{}", candidate);
+        let packet_len = u32::from_ne_bytes(candidate[0..4].try_into().unwrap()) as usize;
+        for register in &candidate[4..packet_len] {
             let sample = mask::<1>(*register);
             packet.push(sample)
         }
         self.free += 1;
     }
 
-    fn collect<const DEPTH: usize>(&mut self, reader: SwapBufReader<LEN, DEPTH>) {
+    fn collect<const DEPTH: usize>(&mut self, reader: SwapBufReader<{ LEN + 4 }, DEPTH>) {
         let mut num: usize = 0;
         let mut decoder = PacketDecoder {
             free_before_attempt: 0,

@@ -1,9 +1,9 @@
 use crate::{ARRAY_LEN, ARRAY_STORE, NEXT};
 use core::arch::global_asm;
 
-static mut ARRAY_FIRST: *const u32 = unsafe { ARRAY_STORE.first().unwrap().as_ptr() };
-static mut ARRAY_LAST: *const u32 = unsafe { ARRAY_STORE.last().unwrap().as_ptr() };
-static mut ARRAY_OFFSET: *const u32 = unsafe { ARRAY_FIRST };
+static mut ARRAY_FIRST: *const u8 = unsafe { ARRAY_STORE.first().unwrap().as_ptr() };
+static mut ARRAY_LAST: *const u8 = unsafe { ARRAY_STORE.last().unwrap().as_ptr() };
+static mut ARRAY_OFFSET: *const u8 = unsafe { ARRAY_FIRST };
 
 // Note: only use R0,R1,R2,R3 and R12. Others are not saved by the
 // mcu before entering the interrupt.
@@ -60,8 +60,8 @@ global_asm! {
     // we start at index 4 as the 0th 32 bits are used 
     // for the length of the packet 
     // see beyond label: `EXIT_READ_PACKETS`
-    "str r1, [r2, #4]",                          // 2 cycles
-    "str r3, [r2, #8]",                          // 2 cycles
+    "strb r1, [r2, #4]",                          // 2 cycles
+    "strb r3, [r2, #5]",                          // 2 cycles
     "NOP",
     // = 14 cycles after first read
 
@@ -70,7 +70,7 @@ global_asm! {
     // store pin state in ARRAY[3]
     // increment NEXT static
     "ldr r1, [r0]",                              // 2 cycles
-    "str r1, [r2, #16]",                         // 2 cycles
+    "strb r1, [r2, #6]",                         // 2 cycles
     "movw r3, :lower16:{NEXT}",                  // 1 cycle
     "movt r3, :upper16:{NEXT}",                  // 1 cycle
     "NOP",                                       // 1 cycle
@@ -81,7 +81,7 @@ global_asm! {
     // store pin state in ARRAY[4]
     // and prepare to set data rdy boolean to true
     "ldr r1, [r0]",                              // 2 cycles
-    "str r1, [r2, #20]",                         // 2 cycles
+    "strb r1, [r2, #7]",                         // 2 cycles
     // load NEXT and add 1
     "ldr r12, [r3]",                             // 2 cycles
     "ADD r12, r12, #1",                          // 1 cycle
@@ -92,7 +92,7 @@ global_asm! {
     // store pin state in ARRAY[5]
     // and prepare to set data rdy boolean to true
     "ldr r1, [r0]",                              // 2 cycles
-    "str r1, [r2, #24]",                         // 2 cycles
+    "strb r1, [r2, #8]",                         // 2 cycles
     // commit NEXT to memory
     "str r12, [r3]",                             // 2 cycles
     // set index to 4
