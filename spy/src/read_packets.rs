@@ -1,4 +1,4 @@
-use crate::{ARRAY_LEN, ARRAY_STORE, NEXT};
+use crate::{ARRAY_LEN, ARRAY_STORE, NEXT, ARRAY_DEPTH};
 use core::arch::global_asm;
 
 static mut ARRAY_FIRST: *const u32 = unsafe { ARRAY_STORE.first().unwrap().as_ptr() };
@@ -68,15 +68,13 @@ global_asm! {
 
 
     // store pin state in ARRAY[2]
-    // and finish setting interrupt pending to false
-    // set interrupt pending to 2/confirm handled
-    // // TODO: change this to increment NEXT static <dvdsk noreply@davidsk.dev>
+    // increment NEXT static
     "ldr r1, [r0]",                              // 2 cycles
-    "str r1, [r2, #12]",                          // 2 cycles
+    "str r1, [r2, #16]",                         // 2 cycles
     "movw r3, :lower16:{NEXT}",                  // 1 cycle
     "movt r3, :upper16:{NEXT}",                  // 1 cycle
     "NOP",                                       // 1 cycle
-    // = 21 cycles after first read
+    // // = 21 cycles after first read
 
 
 
@@ -101,13 +99,13 @@ global_asm! {
     "movw r3, #4",                               // 1 cycle
     // = 28 cycles after first read
 
-   
+
     // // debug pulse surrounding ARRAY values
     // // WARNING: will fuck up index
     // "movs r12, #20",
     // "movt r12, #16386",
-    // "movs r3, #1",
-    // "str r3, [r12]",                                 // 2 cycles (debug pin high)
+   //  // "movs r3, #1",
+   //  // "str r3, [r12]",                                 // 2 cycles (debug pin high)
     
 
     // Store gpio value in ARRAY (repeat N-4 times)
@@ -124,8 +122,8 @@ global_asm! {
     // "str r3, [r12]",                                 // 2 cycles (debug pin low)
 
 
-    // store length of packet(r3) in array[0]
-    "str r3, [r2, #0]",                          // 2 cycles
+    // // store length of packet(r3) in array[0]
+    // "str r3, [r2, #0]",                          // 2 cycles
 
 
     // mark interrupt as no longer pending
@@ -139,14 +137,17 @@ global_asm! {
     // load array_last to r3
     "movw r3, :lower16:{ARRAY_LAST}",
     "movt r3, :upper16:{ARRAY_LAST}",
+    "ldr r3, [r3]",
 
     // check if curr(r2) is larger then array_last(r3)
     "cmp r3, r2", // subtracts curr(r2) from array_last(r3) set flag if res negative
-    "bpl .CONTINUE", // if array_last(r3) - curr(r2) positive jump to CONTINUE
+    "bpl .CONTINUE", // if array_last(r3) - curr(r2) positive, aka not overflowing 
+                     // jump to CONTINUE
 
     // curr > array_last do wrap around and set curr = array_first
     "movw r2, :lower16:{ARRAY_FIRST}",
     "movt r2, :upper16:{ARRAY_FIRST}",
+    "ldr r2, [r2]",
 
     ".CONTINUE:",
     // commit curr to ram
@@ -157,11 +158,11 @@ global_asm! {
     // return out of interrupt
     "bx lr",                                     // 1 + P cycles
 
+    ARRAY_OFFSET = sym ARRAY_OFFSET,
     ARRAY_FIRST = sym ARRAY_FIRST,
     ARRAY_LAST = sym ARRAY_LAST,
-    ARRAY_OFFSET = sym ARRAY_OFFSET,
     ARRAY_LEN_BYTES = const ARRAY_LEN_BYTES,
     NEXT = sym NEXT,
 }
 
-const ARRAY_LEN_BYTES: usize = ARRAY_LEN * 4;
+const ARRAY_LEN_BYTES: usize = ARRAY_LEN * core::mem::size_of::<u32>();
