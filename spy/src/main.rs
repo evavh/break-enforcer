@@ -73,21 +73,25 @@ pub unsafe extern "C" fn CustomReset() -> ! {
     Reset()
 }
 
-extern "C" {
-    static ARRAY_FIRST: [u32; 1];
-    static ARRAY_LAST: [u32; 1];
-}
-
+// ADJUST linker script if this changes from 800 (search for 804)
 const ARRAY_LEN: usize = 800;
 const ARRAY_BYTES: usize = ARRAY_LEN + core::mem::size_of::<u32>();
 // first element is u32 storing the length of the packet
 #[link_section = ".buffer"]
-static mut ARRAY_STORE: [[u8; ARRAY_BYTES]; 8] =
-    [[0; ARRAY_LEN + core::mem::size_of::<u32>()]; 8];
+static mut ARRAY_STORE: [[u8; ARRAY_BYTES]; 8] = [[0; ARRAY_LEN + core::mem::size_of::<u32>()]; 8];
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
 #[entry]
 fn main() -> ! {
+    // dont work, compiler bug? need to figure out whats wrong here
+    // (the printed adresses are equal however)
+    // assert_eq!(unsafe { ARRAY_STORE.first().unwrap().as_ptr() }, unsafe {
+    //     &read_packets::ARRAY_FIRST as *const u8
+    // });
+    // assert_eq!(unsafe { ARRAY_STORE.last().unwrap().as_ptr() }, unsafe {
+    //     &read_packets::ARRAY_LAST as *const u8
+    // });
+
     let mut dp = Peripherals::take().unwrap();
     let mut core = CorePeripherals::take().unwrap();
     let rcc = dp.RCC.constrain();
@@ -144,10 +148,6 @@ fn main() -> ! {
         raw: unsafe { &ARRAY_STORE },
     };
     let mut packets: Packets<50, ARRAY_LEN> = Packets::new();
-    info!("array store first: {}", unsafe {ARRAY_STORE.first().unwrap().as_ptr()});
-    info!("array first: {}", unsafe {&ARRAY_FIRST as *const u32});
-    info!("array store last: {}", unsafe {ARRAY_STORE.last().unwrap().as_ptr()});
-    info!("array last: {}", unsafe {&ARRAY_LAST as *const u32});
 
     // clear pending interrupts on usb gpio
     cortex_m::peripheral::NVIC::unpend(interrupt_number);
@@ -230,7 +230,7 @@ where
     fn append(&mut self, candidate: &[u8]) {
         let packet = &mut self.list[self.free];
         let packet_len = u32::from_ne_bytes(candidate[0..4].try_into().unwrap()) as usize;
-        for register in &candidate[4..4+packet_len] {
+        for register in &candidate[4..4 + packet_len] {
             let sample = mask::<1>(*register);
             packet.push(sample)
         }
@@ -249,7 +249,7 @@ where
             // should hang until there is data
             reader.read((), &mut num, &mut decoder);
         }
-        if decoder.lost -lost_first > 0 {
+        if decoder.lost - lost_first > 0 {
             warn!("Lost {} packages", decoder.lost);
         }
     }

@@ -1,9 +1,18 @@
 use crate::{ARRAY_BYTES, ARRAY_STORE, NEXT};
 use core::arch::global_asm;
 
-static mut ARRAY_FIRST: *const u8 = unsafe { ARRAY_STORE.first().unwrap().as_ptr() };
-static mut ARRAY_LAST: *const u8 = unsafe { ARRAY_STORE.last().unwrap().as_ptr() };
-static mut ARRAY_OFFSET: *const u8 = unsafe { ARRAY_FIRST };
+static mut ARRAY_OFFSET: *const u8 = unsafe { ARRAY_STORE.first().unwrap().as_ptr() };
+// these are created in the linker script. Their adress
+// points to the first and last array in ARRAY_STORE
+// this allows us to use only mov and not load anything 
+// saving 4 cycles. 
+//
+// we need to do this via the linker as we can not pass pointer
+// values to the assembly macro.
+extern "C" {
+    pub static ARRAY_FIRST: [u8; 1];
+    pub static ARRAY_LAST: [u8; 1];
+}
 
 // Note: only use R0,R1,R2,R3 and R12. Others are not saved by the
 // mcu before entering the interrupt.
@@ -57,8 +66,8 @@ global_asm! {
     // store pin states in ARRAY[1] and ARRAY[2]
     // and prepare to set interrupt pending to false
     "ldr r3, [r0]",                              // 2 cycles
-    // we start at index 4 as the 0th 32 bits are used 
-    // for the length of the packet 
+    // we start at index 4 as the 0th 32 bits are used
+    // for the length of the packet
     // see beyond label: `EXIT_READ_PACKETS`
     "strb r1, [r2, #4]",                          // 2 cycles
     "strb r3, [r2, #5]",                          // 2 cycles
@@ -116,7 +125,7 @@ global_asm! {
     "str r3, [r2, #0]",                          // 2 cycles
     "NOP",                                       // 1 cycle
     // = n*7 cycles after first read
-    
+
     // only r12 is free after here
 
     // // debug pulse surrounding ARRAY values
@@ -125,7 +134,7 @@ global_asm! {
     // "movt r12, #16386",
    //  // "movs r3, #1",
    //  // "str r3, [r12]",                                 // 2 cycles (debug pin high)
-    
+
 
     // Store gpio value in ARRAY (repeat N-4 times)
     // Because:
@@ -134,7 +143,7 @@ global_asm! {
     //  - the fourth+fifth read sets the new data bool to true
     include_str!(concat!(env!("OUT_DIR"), "/loop.s")), // should be N * 7
     ".EXIT_READ_PACKETS:",
-    
+
 
     // // debug pulse end
     // "movs r3, #0",                                   // 1 cycle
@@ -146,7 +155,7 @@ global_asm! {
     /* possible optimizations left:
      - align array such that mov can be used to access its adress
      see: https://developer.arm.com/documentation/dui0552/a/the-cortex-m3-instruction-set/about-the-instruction-descriptions/flexible-second-operand?lang=en
-     - figure out how to get array in 
+     - figure out how to get array in
      - replace branch instructions with condidional store instruction?
     */
     // add array_len (smaller then 4095) to curr(r2)
