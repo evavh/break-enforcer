@@ -114,7 +114,7 @@ global_asm! {
     "ldr r1, [r0]",                              // 2 cycles
     "strb r1, [r2, #8]",                         // 2 cycles
     "str r3, [r2, #0]",                          // 2 cycles
-    "NOP"                                        // 1 cycle
+    "NOP",                                       // 1 cycle
     // = n*7 cycles after first read
     
     // only r12 is free after here
