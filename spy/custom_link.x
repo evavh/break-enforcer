@@ -180,6 +180,18 @@ SECTIONS
   . = ALIGN(4);
   __ebss = .;
 
+  /* ### .buffer */
+  .buffer :
+  {
+	_sbuffer = .;
+	*(.buffer .buffer.*);
+	_ebuffer = .;
+  } > RAM
+  ARRAY_FIRST = _sbuffer;
+  /* The number after the minus is automatically inserted by
+   * build.rs */
+  ARRAY_LAST = _ebuffer - 804;
+
   /* ### .uninit */
   .uninit (NOLOAD) : ALIGN(4)
   {

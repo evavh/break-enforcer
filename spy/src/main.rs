@@ -73,9 +73,15 @@ pub unsafe extern "C" fn CustomReset() -> ! {
     Reset()
 }
 
+extern "C" {
+    static ARRAY_FIRST: [u32; 1];
+    static ARRAY_LAST: [u32; 1];
+}
+
 const ARRAY_LEN: usize = 800;
 const ARRAY_BYTES: usize = ARRAY_LEN + core::mem::size_of::<u32>();
 // first element is u32 storing the length of the packet
+#[link_section = ".buffer"]
 static mut ARRAY_STORE: [[u8; ARRAY_BYTES]; 8] =
     [[0; ARRAY_LEN + core::mem::size_of::<u32>()]; 8];
 static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -138,6 +144,10 @@ fn main() -> ! {
         raw: unsafe { &ARRAY_STORE },
     };
     let mut packets: Packets<50, ARRAY_LEN> = Packets::new();
+    info!("array store first: {}", unsafe {ARRAY_STORE.first().unwrap().as_ptr()});
+    info!("array first: {}", unsafe {&ARRAY_FIRST as *const u32});
+    info!("array store last: {}", unsafe {ARRAY_STORE.last().unwrap().as_ptr()});
+    info!("array last: {}", unsafe {&ARRAY_LAST as *const u32});
 
     // clear pending interrupts on usb gpio
     cortex_m::peripheral::NVIC::unpend(interrupt_number);
