@@ -163,19 +163,17 @@ global_asm! {
     // load array_last to r3
     "movw r3, :lower16:{ARRAY_LAST}",
     "movt r3, :upper16:{ARRAY_LAST}",
-    "ldr r3, [r3]", // move to constant?
 
     // check if curr(r2) is larger then array_last(r3)
     "cmp r3, r2", // subtracts curr(r2) from array_last(r3) set flag if res negative
     // replace branch with conditional store instruction?
     // replace with modulo? no, but maybe special instruction?
-    "bpl .CONTINUE", // if array_last(r3) - curr(r2) positive, aka not overflowing 
+    "bpl .CONTINUE", // if array_last(r3) - curr(r2) positive, aka not overflowing
                      // jump to CONTINUE
 
     // curr > array_last do wrap around and set curr = array_first
     "movw r2, :lower16:{ARRAY_FIRST}",
     "movt r2, :upper16:{ARRAY_FIRST}",
-    "ldr r2, [r2]", // move to constant?
 
     ".CONTINUE:",
     // commit curr to ram
@@ -201,4 +199,3 @@ global_asm! {
     ARRAY_BYTES = const ARRAY_BYTES,
     NEXT = sym NEXT,
 }
-
