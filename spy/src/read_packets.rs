@@ -68,7 +68,7 @@ global_asm! {
 
 
     // store pin state in ARRAY[3]
-    // increment NEXT static
+    // start increment NEXT static
     "ldr r1, [r0]",                              // 2 cycles
     "strb r1, [r2, #6]",                         // 2 cycles
     "movw r3, :lower16:{NEXT}",                  // 1 cycle
@@ -79,26 +79,45 @@ global_asm! {
 
 
     // store pin state in ARRAY[4]
-    // and prepare to set data rdy boolean to true
+    // continue incrementing NEXT static
     "ldr r1, [r0]",                              // 2 cycles
     "strb r1, [r2, #7]",                         // 2 cycles
     // load NEXT and add 1
     "ldr r12, [r3]",                             // 2 cycles
     "ADD r12, r12, #1",                          // 1 cycle
-    // = 28 cycles after first read
+    // = n*7 cycles after first read
 
 
 
     // store pin state in ARRAY[5]
-    // and prepare to set data rdy boolean to true
+    // continue incrementing NEXT static
     "ldr r1, [r0]",                              // 2 cycles
     "strb r1, [r2, #8]",                         // 2 cycles
     // commit NEXT to memory
     "str r12, [r3]",                             // 2 cycles
-    // set index to 4
-    "movw r3, #4",                               // 1 cycle
-    // = 28 cycles after first read
+    // set length to 4
+    "movw r3, #5",                               // 1 cycle
+    // = n*7 cycles after first read
 
+
+    // store pin state in ARRAY[6]
+    // start mark interrupt as no longer pending
+    "ldr r1, [r0]",                              // 2 cycles
+    "strb r1, [r2, #8]",                         // 2 cycles
+    "movw r3, #15380",                           // 1 cycle
+    "movt r3, #16385",                           // 1 cycle
+    "movs r12, #2",                              // 1 cycle
+    // = n*7 cycles after first read
+
+    // store pin state in ARRAY[7]
+    // start mark interrupt as no longer pending
+    "ldr r1, [r0]",                              // 2 cycles
+    "strb r1, [r2, #8]",                         // 2 cycles
+    "str r3, [r2, #0]",                          // 2 cycles
+    "NOP"                                        // 1 cycle
+    // = n*7 cycles after first read
+    
+    // only r12 is free after here
 
     // // debug pulse surrounding ARRAY values
     // // WARNING: will fuck up index
@@ -121,39 +140,48 @@ global_asm! {
     // "movs r3, #0",                                   // 1 cycle
     // "str r3, [r12]",                                 // 2 cycles (debug pin low)
 
-
     // store length of packet(r3) in array[0]
     "str r3, [r2, #0]",                          // 2 cycles
 
-
-    // mark interrupt as no longer pending
-    "movw r3, #15380",                           // 1 cycle
-    "movt r3, #16385",                           // 1 cycle
-    "movs r12, #2",                              // 1 cycle
-    "str r12, [r3]",                             // 2 cycles
-
+    /* possible optimizations left:
+     - align array such that mov can be used to access its adress
+     see: https://developer.arm.com/documentation/dui0552/a/the-cortex-m3-instruction-set/about-the-instruction-descriptions/flexible-second-operand?lang=en
+     - figure out how to get array in 
+     - replace branch instructions with condidional store instruction?
+    */
     // add array_len (smaller then 4095) to curr(r2)
     "ADD r2, r2, #{ARRAY_BYTES}",
     // load array_last to r3
     "movw r3, :lower16:{ARRAY_LAST}",
     "movt r3, :upper16:{ARRAY_LAST}",
-    "ldr r3, [r3]",
+    "ldr r3, [r3]", // move to constant?
 
     // check if curr(r2) is larger then array_last(r3)
     "cmp r3, r2", // subtracts curr(r2) from array_last(r3) set flag if res negative
+    // replace branch with conditional store instruction?
+    // replace with modulo? no, but maybe special instruction?
     "bpl .CONTINUE", // if array_last(r3) - curr(r2) positive, aka not overflowing 
                      // jump to CONTINUE
 
     // curr > array_last do wrap around and set curr = array_first
     "movw r2, :lower16:{ARRAY_FIRST}",
     "movt r2, :upper16:{ARRAY_FIRST}",
-    "ldr r2, [r2]",
+    "ldr r2, [r2]", // move to constant?
 
     ".CONTINUE:",
     // commit curr to ram
     "movw r3, :lower16:{ARRAY_OFFSET}",          // 1 cycle
     "movt r3, :upper16:{ARRAY_OFFSET}",          // 1 cycle
     "str r2, [r3]",
+
+    // debug pulse
+    "movs r0, #20",
+    "movs r1, #1",                                  // 1 cycle
+    "movt r0, #16386",                              // 1 cycle
+    "str r1, [r0]",                                 // 2 cycles
+    "movs r1, #0",                                  // 1 cycle
+    "str r1, [r0]",                                 // 2 cycles
+                                                    // = 7 cycles
 
     // return out of interrupt
     "bx lr",                                     // 1 + P cycles
