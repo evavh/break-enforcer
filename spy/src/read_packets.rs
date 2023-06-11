@@ -58,7 +58,6 @@ global_asm! {
     "movw r3, :lower16:{ARRAY_OFFSET}",          // 1 cycle
     "movt r3, :upper16:{ARRAY_OFFSET}",          // 1 cycle
     "ldr r2, [r3]",                              // 2 cycles
-    // store the pinstate in ARRAY[0]
     // = 7 cycles after first read
 
 
@@ -112,20 +111,11 @@ global_asm! {
     // store pin state in ARRAY[6]
     // start mark interrupt as no longer pending
     "ldr r1, [r0]",                              // 2 cycles
-    "strb r1, [r2, #8]",                         // 2 cycles
-    "movw r3, #15380",                           // 1 cycle
-    "movt r3, #16385",                           // 1 cycle
-    "movs r12, #2",                              // 1 cycle
-    // = n*7 cycles after first read
-
-    // store pin state in ARRAY[7]
-    // start mark interrupt as no longer pending
-    "ldr r1, [r0]",                              // 2 cycles
-    "strb r1, [r2, #8]",                         // 2 cycles
-    "str r3, [r2, #0]",                          // 2 cycles
+    "strb r1, [r2, #9]",                         // 2 cycles
+    "movw r12, #15380",                          // 1 cycle
+    "movt r12, #16385",                          // 1 cycle
     "NOP",                                       // 1 cycle
     // = n*7 cycles after first read
-
     // only r12 is free after here
 
     // // debug pulse surrounding ARRAY values
@@ -149,15 +139,12 @@ global_asm! {
     // "movs r3, #0",                                   // 1 cycle
     // "str r3, [r12]",                                 // 2 cycles (debug pin low)
 
+    // mark interrupt as handled
+    "movs r1, #2",                               // 1 cycle
+    "str r1, [r12]",                             // 2 cycles
     // store length of packet(r3) in array[0]
     "str r3, [r2, #0]",                          // 2 cycles
 
-    /* possible optimizations left:
-     - align array such that mov can be used to access its adress
-     see: https://developer.arm.com/documentation/dui0552/a/the-cortex-m3-instruction-set/about-the-instruction-descriptions/flexible-second-operand?lang=en
-     - figure out how to get array in
-     - replace branch instructions with condidional store instruction?
-    */
     // add array_len (smaller then 4095) to curr(r2)
     "ADD r2, r2, #{ARRAY_BYTES}",
     // load array_last to r3
@@ -166,32 +153,30 @@ global_asm! {
 
     // check if curr(r2) is larger then array_last(r3)
     "cmp r3, r2", // subtracts curr(r2) from array_last(r3) set flag if res negative
-    // replace branch with conditional store instruction?
-    // replace with modulo? no, but maybe special instruction?
-    "bpl .CONTINUE", // if array_last(r3) - curr(r2) positive, aka not overflowing
-                     // jump to CONTINUE
 
-    // curr > array_last do wrap around and set curr = array_first
-    "movw r2, :lower16:{ARRAY_FIRST}",
-    "movt r2, :upper16:{ARRAY_FIRST}",
+    // If Then Then, next 2 commands are only executed if
+    // the minus flag is set
+    "ITT MI",                                       // 0 cycles, folded into cmp above
+    // if curr > array_last do wrap around and set curr = array_first
+    "movwmi r2, :lower16:{ARRAY_FIRST}",            // 1 cycle
+    "movtmi r2, :upper16:{ARRAY_FIRST}",            // 1 cycle
 
-    ".CONTINUE:",
     // commit curr to ram
-    "movw r3, :lower16:{ARRAY_OFFSET}",          // 1 cycle
-    "movt r3, :upper16:{ARRAY_OFFSET}",          // 1 cycle
+    "movw r3, :lower16:{ARRAY_OFFSET}",             // 1 cycle
+    "movt r3, :upper16:{ARRAY_OFFSET}",             // 1 cycle
     "str r2, [r3]",
 
-    // debug pulse
-    "movs r0, #20",
-    "movs r1, #1",                                  // 1 cycle
-    "movt r0, #16386",                              // 1 cycle
-    "str r1, [r0]",                                 // 2 cycles
-    "movs r1, #0",                                  // 1 cycle
-    "str r1, [r0]",                                 // 2 cycles
-                                                    // = 7 cycles
+    // // debug pulse
+    // "movs r0, #20",
+    // "movt r0, #16386",                              // 1 cycle
+    // "movs r1, #1",                                  // 1 cycle
+    // "str r1, [r0]",                                 // 2 cycles
+    // "movs r1, #0",                                  // 1 cycle
+    // "str r1, [r0]",                                 // 2 cycles
+    //                                                 // = 7 cycles
 
     // return out of interrupt
-    "bx lr",                                     // 1 + P cycles
+    "bx lr",                                        // 1 + P cycles
 
     ARRAY_OFFSET = sym ARRAY_OFFSET,
     ARRAY_FIRST = sym ARRAY_FIRST,
