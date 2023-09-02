@@ -8,10 +8,10 @@ use embassy_stm32::gpio::{Level, Output, Pin, Speed};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
-const WORK: Duration = Duration::from_secs(20);
-const NOTICE_PERIOD: Duration = Duration::from_secs(10);
-const WARNING_PERIOD: Duration = Duration::from_secs(5);
-const BREAK: Duration = Duration::from_secs(10);
+const WORK: Duration = Duration::from_secs(15 * 60);
+const NOTICE_PERIOD: Duration = Duration::from_secs(60);
+const WARNING_PERIOD: Duration = Duration::from_secs(10);
+const BREAK: Duration = Duration::from_secs(5 * 60);
 
 const SHORT_BEEP: Duration = Duration::from_millis(200);
 const LONG_BEEP: Duration = Duration::from_millis(600);
