@@ -4,7 +4,8 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{Level, Output, Pin, Speed};
+use embassy_stm32::gpio::{Level, Output, Pin, Speed, Input, Pull};
+use embassy_stm32::exti::ExtiInput;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -32,8 +33,15 @@ async fn main(_spawner: Spawner) {
     let mut red = Output::new(p.PA2, Level::High, Speed::Low);
     let mut green = Output::new(p.PA1, Level::High, Speed::Low);
     let mut blue = Output::new(p.PA3, Level::High, Speed::Low);
+    let button = Input::new(p.PB4, Pull::Down);
+    let mut button = ExtiInput::new(button, p.EXTI4);
+
 
     speaker.set_low();
+
+    loop {
+        info!("{}", button.is_high());
+    }
 
     loop {
         info!("work for {}m", WORK.as_secs() / 60);
