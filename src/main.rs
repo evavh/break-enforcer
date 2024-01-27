@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{sync::mpsc::channel, thread, time::{Instant, Duration}};
 
 use crate::check_inputs::wait_for_input;
 
@@ -13,10 +13,22 @@ fn main() {
     let mut input_times: Vec<Instant> = Vec::new();
     let program_start = Instant::now();
 
+    let (send, recv) = channel();
+
+    wait_for_input(KEYBOARD_DEVICE);
+
+    let send1 = send.clone();
+    thread::spawn(move || loop {
+        let time = wait_for_input(KEYBOARD_DEVICE);
+        send.send(time).unwrap();
+    });
+    thread::spawn(move || loop {
+        let time = wait_for_input(MOUSE_DEVICE);
+        send1.send(time).unwrap();
+    });
+
     loop {
-        let input_time = wait_for_input(KEYBOARD_DEVICE);
-        input_times.push(input_time.duration_since(program_start).as_secs());
-        n_inputs += 1;
-        println!("{n_inputs} inputs detected\r");
+        let input_time = recv.recv_timeout(Duration::from_secs(5)).unwrap();
+        println!("Got input time {input_time:?}");
     }
 }
