@@ -1,34 +1,40 @@
-use std::{sync::mpsc::channel, thread, time::{Instant, Duration}};
+use std::{
+    sync::mpsc::{channel, RecvTimeoutError},
+    thread,
+    time::{Duration, Instant},
+};
 
 use crate::check_inputs::wait_for_input;
+
+use self::check_inputs::send_when_breaktime_inactive;
 
 const MOUSE_DEVICE: &'static str = "/dev/input/mice";
 const KEYBOARD_DEVICE: &'static str =
     "/dev/input/by-id/usb-046a_010d-event-kbd";
 
+const T_BREAK: Duration = Duration::from_secs(5);
+const T_WORK: Duration = Duration::from_secs(15);
+
 mod check_inputs;
 
 fn main() {
-    let mut n_inputs = 0;
-    let mut input_times: Vec<Instant> = Vec::new();
-    let program_start = Instant::now();
-
     let (send, recv) = channel();
 
-    wait_for_input(KEYBOARD_DEVICE);
-
-    let send1 = send.clone();
-    thread::spawn(move || loop {
-        let time = wait_for_input(KEYBOARD_DEVICE);
-        send.send(time).unwrap();
-    });
-    thread::spawn(move || loop {
-        let time = wait_for_input(MOUSE_DEVICE);
-        send1.send(time).unwrap();
-    });
+    thread::spawn(move || send_when_breaktime_inactive(KEYBOARD_DEVICE, send));
 
     loop {
-        let input_time = recv.recv_timeout(Duration::from_secs(5)).unwrap();
-        println!("Got input time {input_time:?}");
+        println!("Keyboard on!");
+        match recv.recv_timeout(T_WORK) {
+            Ok(_) => {
+                println!("No input for breaktime");
+                wait_for_input(KEYBOARD_DEVICE);
+                println!("Restarting work");
+                continue;
+            }
+            Err(RecvTimeoutError::Timeout) => (),
+            Err(e) => panic!("Unexpected error: {e}"),
+        }
+        println!("Keyboard off!");
+        thread::sleep(T_BREAK);
     }
 }
