@@ -3,7 +3,8 @@ use std::{
     io::Read,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{channel, RecvTimeoutError, Sender}, Arc,
+        mpsc::{channel, Receiver, RecvTimeoutError, Sender},
+        Arc,
     },
     thread,
     time::Instant,
@@ -19,23 +20,26 @@ pub fn wait_for_input(device: &str) -> Instant {
     Instant::now()
 }
 
-pub fn send_when_breaktime_inactive(
+pub fn inactivity_watcher(
     device: &'static str,
-    outer_send: Sender<bool>,
-    break_skip_sent: Arc<AtomicBool>,
+    work_start_receiver: &Receiver<bool>,
+    break_skip_sender: &Sender<bool>,
+    break_skip_sent: &Arc<AtomicBool>,
 ) {
-    let (inner_send, inner_recv) = channel();
+    work_start_receiver.recv().unwrap();
+
+    let (input_sender, input_receiver) = channel();
     thread::spawn(move || loop {
         wait_for_input(device);
-        inner_send.send(true).unwrap();
+        input_sender.send(true).unwrap();
     });
 
     loop {
-        match inner_recv.recv_timeout(T_BREAK) {
+        match input_receiver.recv_timeout(T_BREAK) {
             Ok(_) => (),
             Err(RecvTimeoutError::Timeout) => {
                 if !break_skip_sent.load(Ordering::Acquire) {
-                    outer_send.send(true).unwrap();
+                    break_skip_sender.send(true).unwrap();
                     break_skip_sent.store(true, Ordering::Release);
                 }
             }
