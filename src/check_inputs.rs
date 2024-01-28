@@ -1,7 +1,10 @@
 use std::{
     fs::File,
     io::Read,
-    sync::mpsc::{channel, RecvTimeoutError, Sender},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{channel, RecvTimeoutError, Sender}, Arc,
+    },
     thread,
     time::Instant,
 };
@@ -19,6 +22,7 @@ pub fn wait_for_input(device: &str) -> Instant {
 pub fn send_when_breaktime_inactive(
     device: &'static str,
     outer_send: Sender<bool>,
+    break_skip_sent: Arc<AtomicBool>,
 ) {
     let (inner_send, inner_recv) = channel();
     thread::spawn(move || loop {
@@ -29,7 +33,12 @@ pub fn send_when_breaktime_inactive(
     loop {
         match inner_recv.recv_timeout(T_BREAK) {
             Ok(_) => (),
-            Err(RecvTimeoutError::Timeout) => outer_send.send(true).unwrap(),
+            Err(RecvTimeoutError::Timeout) => {
+                if !break_skip_sent.load(Ordering::Acquire) {
+                    outer_send.send(true).unwrap();
+                    break_skip_sent.store(true, Ordering::Release);
+                }
+            }
             Err(e) => panic!("Unexpected error: {e}"),
         }
     }
