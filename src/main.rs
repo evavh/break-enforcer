@@ -8,12 +8,12 @@ use std::{
     time::Duration,
 };
 
-use crate::check_inputs::wait_for_input;
-
 use self::check_inputs::inactivity_watcher;
+use crate::check_inputs::wait_for_any_input;
 
 const MOUSE_DEVICE: &str = "/dev/input/mice";
 const KEYBOARD_DEVICE: &str = "/dev/input/by-id/usb-046a_010d-event-kbd";
+const ALL_DEVICES: [&str; 2] = [MOUSE_DEVICE, KEYBOARD_DEVICE];
 
 const T_BREAK: Duration = Duration::from_secs(5);
 const T_WORK: Duration = Duration::from_secs(15);
@@ -30,7 +30,7 @@ fn main() {
 
         thread::spawn(move || {
             inactivity_watcher(
-                KEYBOARD_DEVICE,
+                ALL_DEVICES,
                 &work_start_receiver,
                 &break_skip_sender,
                 &break_skip_is_sent,
@@ -41,14 +41,14 @@ fn main() {
     loop {
         println!("Keyboard on!");
         println!("Waiting for input to start work timer...");
-        wait_for_input(KEYBOARD_DEVICE);
+        wait_for_any_input(ALL_DEVICES);
         println!("Starting work timer for {T_WORK:?}");
         work_start_sender.send(true).unwrap();
         match break_skip_receiver.recv_timeout(T_WORK) {
             Ok(_) => {
                 println!("No input for breaktime, skip break");
                 println!("Waiting for input to restart work timer...");
-                wait_for_input(KEYBOARD_DEVICE);
+                wait_for_any_input(ALL_DEVICES);
                 println!("\nRestarting work");
                 break_skip_is_sent.store(false, Ordering::Release);
                 continue;

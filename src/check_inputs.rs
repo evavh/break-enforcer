@@ -20,8 +20,27 @@ pub fn wait_for_input(device: &str) -> Instant {
     Instant::now()
 }
 
+pub fn wait_for_any_input(devices: [&'static str; 2]) -> Instant {
+    let (send, recv) = channel();
+
+    for device in devices {
+        let send = send.clone();
+
+        thread::Builder::new()
+            .name(device.to_string())
+            .spawn(move || {
+                wait_for_input(device);
+                let _ = send.send(true);
+            })
+            .unwrap();
+    }
+
+    recv.recv().unwrap();
+    Instant::now()
+}
+
 pub fn inactivity_watcher(
-    device: &'static str,
+    devices: [&'static str; 2],
     work_start_receiver: &Receiver<bool>,
     break_skip_sender: &Sender<bool>,
     break_skip_sent: &Arc<AtomicBool>,
@@ -30,7 +49,7 @@ pub fn inactivity_watcher(
 
     let (input_sender, input_receiver) = channel();
     thread::spawn(move || loop {
-        wait_for_input(device);
+        wait_for_any_input(devices);
         input_sender.send(true).unwrap();
     });
 
