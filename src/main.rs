@@ -16,9 +16,6 @@ use crate::check_inputs::inactivity_watcher;
 use crate::check_inputs::wait_for_any_input;
 use crate::lock::Device;
 
-const USER: &str = "focus";
-const UID: &str = "1004";
-
 const MOUSE_DEVICE: &str = "/dev/input/mice";
 const MOUSE_EVENT: &str = "/dev/input/event14";
 const KEYBOARD_DEVICE: &str = "/dev/input/by-id/usb-046a_010d-event-kbd";
@@ -56,17 +53,17 @@ fn main() {
     }
 
     loop {
-        notify("Keyboard on!");
-        notify("Waiting for input to start work timer...");
+        notify_all_users("Keyboard on!");
+        notify_all_users("Waiting for input to start work timer...");
         wait_for_any_input(ALL_DEVICES);
-        notify(&format!("Starting work timer for {T_WORK:?}"));
+        notify_all_users(&format!("Starting work timer for {T_WORK:?}"));
         work_start_sender.send(true).unwrap();
         match break_skip_receiver.recv_timeout(T_WORK) {
             Ok(_) => {
-                notify("No input for breaktime, skip break");
-                notify("Waiting for input to restart work timer...");
+                notify_all_users("No input for breaktime, skip break");
+                notify_all_users("Waiting for input to restart work timer...");
                 wait_for_any_input(ALL_DEVICES);
-                notify("Restarting work");
+                notify_all_users("Restarting work");
                 break_skip_is_sent.store(false, Ordering::Release);
                 continue;
             }
@@ -77,14 +74,28 @@ fn main() {
             let _mouse = mouse_dev.clone().lock();
             let _keyboard = keyboard_dev.clone().lock();
 
-            notify("Keyboard off!");
-            notify(&format!("Starting break timer for {T_BREAK:?}"));
+            notify_all_users("Keyboard off!");
+            notify_all_users(&format!("Starting break timer for {T_BREAK:?}"));
             thread::sleep(T_BREAK);
         }
     }
 }
 
-fn notify(text: &str) {
-    let command = format!("sudo -u {USER} DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{UID}/bus notify-send -t 5000 \"{text}\"");
+fn notify(username: &str, uid: &str, text: &str) {
+    let command = format!("sudo -u {username} DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus notify-send -t 5000 \"{text}\"");
     Command::new("sh").arg("-c").arg(command).output().unwrap();
+}
+
+fn notify_all_users(text: &str) {
+    let users = Command::new("loginctl").output().unwrap().stdout;
+    let users = String::from_utf8(users).unwrap();
+    let users = users
+        .lines()
+        .filter(|x| x.starts_with(" "))
+        .map(|x| x.split(' '))
+        .map(|mut x| (x.nth(5).unwrap(), x.next().unwrap()));
+
+    for (uid, username) in users {
+        notify(username, uid, text);
+    }
 }
