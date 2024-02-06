@@ -1,0 +1,10 @@
+[Unit]
+Description=Software break enforcer prototype
+After=multi-user.target
+
+[Service]
+ExecStart=/usr/local/bin/break-enforcer-s
+ExecTop=/bin/kill -s SIGKILL $MAINPID
+
+[Install]
+WantedBy=multi-user.target
