@@ -16,11 +16,14 @@ use crate::check_inputs::inactivity_watcher;
 use crate::check_inputs::wait_for_any_input;
 use crate::lock::Device;
 
+// For monitoring input
 const MOUSE_DEVICE: &str = "/dev/input/mice";
-const MOUSE_EVENT: &str = "/dev/input/event14";
 const KEYBOARD_DEVICE: &str = "/dev/input/by-id/usb-046a_010d-event-kbd";
-const KEYBOARD_EVENT: &str = "/dev/input/event3";
 const ALL_DEVICES: [&str; 2] = [MOUSE_DEVICE, KEYBOARD_DEVICE];
+
+// For blocking input
+const MOUSE_EVENT: &str = "/dev/input/event14";
+const KEYBOARD_EVENT: &str = "/dev/input/event3";
 
 const T_BREAK: Duration = Duration::from_secs(5 * 60);
 const T_WORK: Duration = Duration::from_secs(15 * 60);
@@ -92,8 +95,8 @@ fn notify_all_users(text: &str) {
     let users = users
         .lines()
         .filter(|x| x.starts_with(" "))
-        .map(|x| x.split(' '))
-        .map(|mut x| (x.nth(5).unwrap(), x.next().unwrap()));
+        .map(|x| x.split(' ').filter(|x| !x.is_empty()))
+        .map(|mut x| (x.nth(1).unwrap(), x.next().unwrap()));
 
     for (uid, username) in users {
         notify(username, uid, text);
