@@ -12,6 +12,7 @@ use std::{
 
 use crate::T_BREAK;
 
+// TODO get file open out of here, runs too often
 pub fn wait_for_input(device: &str) -> Instant {
     let mut file = File::open(device).unwrap();
     let mut packet = [0u8; 24];
