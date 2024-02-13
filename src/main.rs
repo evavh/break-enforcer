@@ -3,7 +3,7 @@ use std::{
     process::Command,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{channel, RecvTimeoutError},
+        mpsc::{channel, Receiver, RecvTimeoutError},
         Arc,
     },
     thread,
@@ -30,9 +30,8 @@ const T_BREAK: Duration = Duration::from_secs(5 * 60);
 const T_WORK: Duration = Duration::from_secs(15 * 60);
 
 fn main() {
-    dbg!(list_devices());
-
-    let mut device_files = ALL_DEVICES.map(File::open).map(Result::unwrap);
+    let device_files = ALL_DEVICES.map(File::open).map(Result::unwrap);
+    let device_files2 = ALL_DEVICES.map(File::open).map(Result::unwrap);
 
     // let keyboard_dev = Device {
     //     event_path: KEYBOARD_EVENT.to_string(),
@@ -47,31 +46,31 @@ fn main() {
     let (work_start_sender, work_start_receiver) = channel();
     let break_skip_is_sent = Arc::new(AtomicBool::new(false));
 
+    let recv_any_input = wait_for_any_input(device_files);
+    let recv_any_input2 = wait_for_any_input(device_files2);
+
     {
         let break_skip_is_sent = break_skip_is_sent.clone();
 
         thread::spawn(move || {
             inactivity_watcher(
-                ALL_DEVICES,
                 &work_start_receiver,
                 &break_skip_sender,
                 &break_skip_is_sent,
+                recv_any_input2,
             );
         });
     }
 
     loop {
-        notify_all_users("Keyboard on!");
         notify_all_users("Waiting for input to start work timer...");
-        wait_for_any_input(&mut device_files);
+        block_on_new_input(&recv_any_input);
         notify_all_users(&format!("Starting work timer for {T_WORK:?}"));
         work_start_sender.send(true).unwrap();
         match break_skip_receiver.recv_timeout(T_WORK) {
             Ok(_) => {
-                notify_all_users("No input for breaktime, skip break");
-                notify_all_users("Waiting for input to restart work timer...");
-                wait_for_any_input(&mut device_files);
-                notify_all_users("Restarting work");
+                notify_all_users("No input for breaktime");
+                block_on_new_input(&recv_any_input);
                 break_skip_is_sent.store(false, Ordering::Release);
                 continue;
             }
@@ -79,24 +78,38 @@ fn main() {
             Err(e) => panic!("Unexpected error: {e}"),
         }
         {
+            // Keeps the lock on until this variable is dropped at the end
+            // of the scope
+            let mut _locks = Vec::new();
+
             for mouse in MOUSE_NAMES.map(find_event).into_iter().flatten() {
-                mouse.clone().lock();
+                _locks.push(mouse.clone().lock());
+                
             }
             for keyboard in find_event(KEYBOARD_NAME) {
-                keyboard.clone().lock();
+                _locks.push(keyboard.clone().lock());
             }
 
-            notify_all_users("Keyboard off!");
             notify_all_users(&format!("Starting break timer for {T_BREAK:?}"));
             thread::sleep(T_BREAK);
         }
     }
 }
 
+fn block_on_new_input(recv_any_input: &Receiver<bool>) {
+    loop {
+        if recv_any_input.try_recv().is_err() {
+            break;
+        };
+    }
+
+    recv_any_input.recv().unwrap();
+}
+
 fn find_event(name: &str) -> Vec<Device> {
     let devices = lock::list_devices();
-    
-    devices.into_iter().filter(|x| x.name == name).collect()
+
+    dbg!(devices.into_iter().filter(|x| x.name == name).collect())
 }
 
 fn notify(username: &str, uid: &str, text: &str) {

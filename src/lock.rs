@@ -102,8 +102,6 @@ fn wait_for_stderr_end(stderr: ChildStderr) -> String {
 
 pub fn list_devices() -> Vec<Device> {
     let output = run_evtest();
-    dbg!(&output);
-
     println!("discovering input devices");
     output
         .into_iter()
