@@ -7,7 +7,6 @@ use std::{
         Arc,
     },
     thread,
-    time::Instant,
 };
 
 use crate::T_BREAK;
@@ -38,7 +37,7 @@ pub fn inactivity_watcher(
     work_start_receiver: &Receiver<bool>,
     break_skip_sender: &Sender<bool>,
     break_skip_sent: &Arc<AtomicBool>,
-    input_receiver: Receiver<bool>,
+    input_receiver: &Receiver<bool>,
 ) {
     work_start_receiver.recv().unwrap();
 

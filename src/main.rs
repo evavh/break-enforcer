@@ -15,7 +15,7 @@ mod lock;
 
 use crate::check_inputs::inactivity_watcher;
 use crate::check_inputs::wait_for_any_input;
-use crate::lock::{list_devices, Device};
+use crate::lock::Device;
 
 // For monitoring input
 const MOUSE_DEVICE: &str = "/dev/input/mice";
@@ -33,15 +33,6 @@ fn main() {
     let device_files = ALL_DEVICES.map(File::open).map(Result::unwrap);
     let device_files2 = ALL_DEVICES.map(File::open).map(Result::unwrap);
 
-    // let keyboard_dev = Device {
-    //     event_path: KEYBOARD_EVENT.to_string(),
-    //     name: "HID 046a:010d".to_string(),
-    // };
-    // let mouse_dev = Device {
-    //     event_path: MOUSE_EVENT.to_string(),
-    //     name: "HSMshift".to_string(),
-    // };
-
     let (break_skip_sender, break_skip_receiver) = channel();
     let (work_start_sender, work_start_receiver) = channel();
     let break_skip_is_sent = Arc::new(AtomicBool::new(false));
@@ -57,7 +48,7 @@ fn main() {
                 &work_start_receiver,
                 &break_skip_sender,
                 &break_skip_is_sent,
-                recv_any_input2,
+                &recv_any_input2,
             );
         });
     }
@@ -77,21 +68,21 @@ fn main() {
             Err(RecvTimeoutError::Timeout) => (),
             Err(e) => panic!("Unexpected error: {e}"),
         }
-        {
-            // Keeps the lock on until this variable is dropped at the end
-            // of the scope
-            let mut _locks = Vec::new();
 
-            for mouse in MOUSE_NAMES.map(find_event).into_iter().flatten() {
-                _locks.push(mouse.clone().lock());
-                
-            }
-            for keyboard in find_event(KEYBOARD_NAME) {
-                _locks.push(keyboard.clone().lock());
-            }
+        let mut locks = Vec::new();
 
-            notify_all_users(&format!("Starting break timer for {T_BREAK:?}"));
-            thread::sleep(T_BREAK);
+        for mouse in MOUSE_NAMES.map(find_event).into_iter().flatten() {
+            locks.push(mouse.clone().lock().unwrap());
+        }
+        for keyboard in find_event(KEYBOARD_NAME) {
+            locks.push(keyboard.clone().lock().unwrap());
+        }
+
+        notify_all_users(&format!("Starting break timer for {T_BREAK:?}"));
+        thread::sleep(T_BREAK);
+
+        for lock in locks {
+            lock.unlock();
         }
     }
 }
@@ -122,7 +113,7 @@ fn notify_all_users(text: &str) {
     let users = String::from_utf8(users).unwrap();
     let users = users
         .lines()
-        .filter(|x| x.starts_with(" "))
+        .filter(|x| x.starts_with(' '))
         .map(|x| x.split(' ').filter(|x| !x.is_empty()))
         .map(|mut x| (x.nth(1).unwrap(), x.next().unwrap()));
 

@@ -12,13 +12,18 @@ use std::time::{Duration, Instant};
 #[derive(Debug)]
 pub enum CommandError {
     Io(std::io::Error),
-    Failed { stderr: String },
+    // TODO: why unused?
+    #[allow(unused)]
+    Failed {
+        stderr: String,
+    },
 }
 
 pub struct LockedDevice {
     process: Arc<Mutex<Child>>,
     stopping: Arc<AtomicBool>,
-    maintain_lock: JoinHandle<()>,
+    // TODO: why unused?
+    _maintain_lock: JoinHandle<()>,
 }
 
 impl LockedDevice {
@@ -41,7 +46,6 @@ pub struct Device {
 }
 
 impl Device {
-    #[must_use]
     pub fn lock(self) -> Result<LockedDevice, CommandError> {
         let Self { event_path, .. } = self;
         let (process, stderr) = lock_input(&event_path)?;
@@ -59,6 +63,7 @@ impl Device {
                     if stopping.load(Ordering::Relaxed) {
                         break;
                     }
+                    #[allow(clippy::manual_assert)]
                     if first_lock.elapsed() < Duration::from_secs(5) {
                         panic!("{err}");
                     }
@@ -73,7 +78,7 @@ impl Device {
 
         Ok(LockedDevice {
             process,
-            maintain_lock,
+            _maintain_lock: maintain_lock,
             stopping,
         })
     }
@@ -107,7 +112,7 @@ pub fn list_devices() -> Vec<Device> {
         .into_iter()
         .filter(|s| s.starts_with("/dev/input/event"))
         .map(|s| {
-            let (event_path, name) = s.split_once(":").unwrap();
+            let (event_path, name) = s.split_once(':').unwrap();
             let event_path = event_path.trim().to_string();
             let name = name.trim().to_string();
             Device { event_path, name }
@@ -142,7 +147,7 @@ fn run_evtest() -> Vec<String> {
         match rx.try_recv() {
             Ok(Ok(line)) => lines.push(line),
             Ok(Err(e)) => panic!("Unexpected error {e}"),
-            Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => {
+            Err(TryRecvError::Empty | TryRecvError::Disconnected) => {
                 return lines;
             }
         }
