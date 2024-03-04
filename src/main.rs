@@ -1,6 +1,5 @@
 use std::{
     fs::File,
-    process::Command,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{channel, Receiver, RecvTimeoutError},
@@ -12,10 +11,12 @@ use std::{
 
 mod check_inputs;
 mod lock;
+mod notification;
 
 use crate::check_inputs::inactivity_watcher;
 use crate::check_inputs::wait_for_any_input;
 use crate::lock::Device;
+use crate::notification::notify_all_users;
 
 // For monitoring input
 const MOUSE_DEVICE: &str = "/dev/input/mice";
@@ -100,24 +101,5 @@ fn block_on_new_input(recv_any_input: &Receiver<bool>) {
 fn find_event(name: &str) -> Vec<Device> {
     let devices = lock::list_devices();
 
-    dbg!(devices.into_iter().filter(|x| x.name == name).collect())
-}
-
-fn notify(username: &str, uid: &str, text: &str) {
-    let command = format!("sudo -u {username} DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus notify-send -t 5000 \"{text}\"");
-    Command::new("sh").arg("-c").arg(command).output().unwrap();
-}
-
-fn notify_all_users(text: &str) {
-    let users = Command::new("loginctl").output().unwrap().stdout;
-    let users = String::from_utf8(users).unwrap();
-    let users = users
-        .lines()
-        .filter(|x| x.starts_with(' '))
-        .map(|x| x.split(' ').filter(|x| !x.is_empty()))
-        .map(|mut x| (x.nth(1).unwrap(), x.next().unwrap()));
-
-    for (uid, username) in users {
-        notify(username, uid, text);
-    }
+    devices.into_iter().filter(|x| x.name == name).collect()
 }
