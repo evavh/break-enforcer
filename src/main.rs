@@ -29,6 +29,7 @@ const KEYBOARD_NAME: &str = "HID 046a:010d";
 
 const T_BREAK: Duration = Duration::from_secs(5 * 60);
 const T_WORK: Duration = Duration::from_secs(15 * 60);
+const T_GRACE: Duration = Duration::from_secs(20);
 
 fn main() {
     let device_files = ALL_DEVICES.map(File::open).map(Result::unwrap);
@@ -59,7 +60,7 @@ fn main() {
         block_on_new_input(&recv_any_input);
         notify_all_users(&format!("Starting work timer for {T_WORK:?}"));
         work_start_sender.send(true).unwrap();
-        match break_skip_receiver.recv_timeout(T_WORK) {
+        match break_skip_receiver.recv_timeout(T_WORK - T_GRACE) {
             Ok(_) => {
                 notify_all_users("No input for breaktime");
                 block_on_new_input(&recv_any_input);
@@ -69,6 +70,9 @@ fn main() {
             Err(RecvTimeoutError::Timeout) => (),
             Err(e) => panic!("Unexpected error: {e}"),
         }
+
+        notify_all_users(&format!("Locking in {T_GRACE:?}!"));
+        thread::sleep(T_GRACE);
 
         let mut locks = Vec::new();
 
