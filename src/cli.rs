@@ -19,7 +19,7 @@ pub enum Commands {
         #[arg(short, long, value_name = "warn", value_parser = parse_duration)]
         grace_duration: Duration,
     },
-    FindDevices,
+    Wizard,
 }
 
 /// Disables specified input devices during breaks. The period between breaks,

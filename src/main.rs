@@ -13,9 +13,9 @@ use std::{
 mod check_inputs;
 mod cli;
 mod config;
-mod find_devices;
 mod lock;
 mod notification;
+mod setup;
 mod watch;
 
 use clap::Parser;
@@ -44,8 +44,8 @@ fn main() {
             break_duration,
             grace_duration,
         } => (work_duration, break_duration, grace_duration),
-        cli::Commands::FindDevices => {
-            find_devices::list(&devices, args.config_path).unwrap();
+        cli::Commands::Wizard => {
+            setup::wizard(&devices, args.config_path).unwrap();
             return;
         }
     };
