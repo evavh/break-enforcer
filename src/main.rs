@@ -1,3 +1,5 @@
+#![feature(thread_sleep_until)]
+
 use std::{
     fs::File,
     sync::{
@@ -6,12 +8,17 @@ use std::{
         Arc,
     },
     thread,
-    time::Duration,
 };
 
 mod check_inputs;
+mod cli;
+mod config;
+mod find_devices;
 mod lock;
 mod notification;
+mod watch;
+
+use clap::Parser;
 
 use crate::check_inputs::inactivity_watcher;
 use crate::check_inputs::wait_for_any_input;
@@ -27,11 +34,22 @@ const ALL_DEVICES: [&str; 2] = [MOUSE_DEVICE, KEYBOARD_DEVICE];
 const MOUSE_NAMES: [&str; 2] = ["HSMshift", "Hippus N.V. HSMshift"];
 const KEYBOARD_NAME: &str = "HID 046a:010d";
 
-const T_BREAK: Duration = Duration::from_secs(5 * 60);
-const T_WORK: Duration = Duration::from_secs(15 * 60);
-const T_GRACE: Duration = Duration::from_secs(20);
-
 fn main() {
+    let devices = watch::devices().unwrap();
+
+    let args = cli::Cli::parse();
+    let (work_duration, break_duration, grace_duration) = match args.command {
+        cli::Commands::Run {
+            work_duration,
+            break_duration,
+            grace_duration,
+        } => (work_duration, break_duration, grace_duration),
+        cli::Commands::FindDevices => {
+            find_devices::list(&devices, args.config_path).unwrap();
+            return;
+        }
+    };
+
     let device_files = ALL_DEVICES.map(File::open).map(Result::unwrap);
     let device_files2 = ALL_DEVICES.map(File::open).map(Result::unwrap);
 
@@ -51,6 +69,7 @@ fn main() {
                 &break_skip_sender,
                 &break_skip_is_sent,
                 &recv_any_input2,
+                work_duration,
             );
         });
     }
@@ -58,9 +77,9 @@ fn main() {
     loop {
         notify_all_users("Waiting for input to start work timer...");
         block_on_new_input(&recv_any_input);
-        notify_all_users(&format!("Starting work timer for {T_WORK:?}"));
+        notify_all_users(&format!("Starting work timer for {break_duration:?}"));
         work_start_sender.send(true).unwrap();
-        match break_skip_receiver.recv_timeout(T_WORK - T_GRACE) {
+        match break_skip_receiver.recv_timeout(break_duration - grace_duration) {
             Ok(_) => {
                 notify_all_users("No input for breaktime");
                 block_on_new_input(&recv_any_input);
@@ -71,8 +90,8 @@ fn main() {
             Err(e) => panic!("Unexpected error: {e}"),
         }
 
-        notify_all_users(&format!("Locking in {T_GRACE:?}!"));
-        thread::sleep(T_GRACE);
+        notify_all_users(&format!("Locking in {grace_duration:?}!"));
+        thread::sleep(grace_duration);
 
         let mut locks = Vec::new();
 
@@ -83,8 +102,8 @@ fn main() {
             locks.push(keyboard.clone().lock().unwrap());
         }
 
-        notify_all_users(&format!("Starting break timer for {T_BREAK:?}"));
-        thread::sleep(T_BREAK);
+        notify_all_users(&format!("Starting break timer for {work_duration:?}"));
+        thread::sleep(work_duration);
 
         for lock in locks {
             lock.unlock();

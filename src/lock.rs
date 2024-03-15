@@ -1,6 +1,7 @@
 // Source: https://github.com/dvdsk/disable-input/blob/main/src/input.rs
 // (copied with permission)
 
+use std::hash::Hash;
 use std::io::{BufRead, BufReader};
 use std::process::{Child, ChildStderr, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,14 +10,21 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-#[derive(Debug)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum CommandError {
-    Io(std::io::Error),
-    // TODO: why unused?
-    #[allow(unused)]
-    Failed {
-        stderr: String,
-    },
+    #[error("must run as root")]
+    NotRunningAsRoot,
+    #[error("Io error happened: {0:?}")]
+    Io(Arc<std::io::Error>),
+}
+
+impl CommandError {
+    // silly io::Error is not clone :(
+    pub fn io(err: std::io::Error) -> Self {
+        Self::Io(Arc::new(err))
+    }
 }
 
 pub struct LockedDevice {
@@ -39,7 +47,7 @@ impl Drop for LockedDevice {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Device {
     pub event_path: String,
     pub name: String,
@@ -68,8 +76,7 @@ impl Device {
                         panic!("{err}");
                     }
                     // todo figure out startup vs keyboard in/out error
-                    let (new_process, new_stderr) =
-                        lock_input(&event_path).unwrap();
+                    let (new_process, new_stderr) = lock_input(&event_path).unwrap();
                     *process.lock().unwrap() = new_process;
                     stderr = Some(new_stderr);
                 }
@@ -91,7 +98,7 @@ fn lock_input(event_path: &str) -> Result<(Child, ChildStderr), CommandError> {
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(CommandError::Io)?;
+        .map_err(CommandError::io)?;
     let stderr = process.stderr.take().unwrap();
     Ok((process, stderr))
 }
@@ -132,9 +139,9 @@ fn run_evtest() -> Vec<String> {
     let _handle = thread::spawn(move || {
         let reader = BufReader::new(evtest_process.stderr.take().unwrap());
         for line in reader.lines() {
-            let err_happend = line.is_err();
+            let err_happened = line.is_err();
             tx.send(line).unwrap();
-            if err_happend {
+            if err_happened {
                 return;
             }
         }

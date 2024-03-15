@@ -9,8 +9,6 @@ use std::{
     thread,
 };
 
-use crate::T_BREAK;
-
 pub fn wait_for_input(file: &mut File) {
     let mut packet = [0u8; 24];
     file.read_exact(&mut packet).unwrap();
@@ -38,11 +36,12 @@ pub fn inactivity_watcher(
     break_skip_sender: &Sender<bool>,
     break_skip_sent: &Arc<AtomicBool>,
     input_receiver: &Receiver<bool>,
+    work_duration: std::time::Duration,
 ) {
     work_start_receiver.recv().unwrap();
 
     loop {
-        match input_receiver.recv_timeout(T_BREAK) {
+        match input_receiver.recv_timeout(work_duration) {
             Ok(_) => (),
             Err(RecvTimeoutError::Timeout) => {
                 if !break_skip_sent.load(Ordering::Acquire) {
