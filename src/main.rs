@@ -15,7 +15,7 @@ mod cli;
 mod config;
 mod lock;
 mod notification;
-mod setup;
+mod wizard;
 mod watch;
 
 use clap::Parser;
@@ -37,7 +37,7 @@ fn main() -> color_eyre::Result<()> {
             grace_duration,
         } => (work_duration, break_duration, grace_duration),
         cli::Commands::Wizard => {
-            setup::wizard(&online_devices, args.config_path).wrap_err("Error running wizard")?;
+            wizard::run(&online_devices, args.config_path).wrap_err("Error running wizard")?;
             return Ok(());
         }
     };

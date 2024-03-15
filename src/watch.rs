@@ -21,7 +21,7 @@ struct Inner {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Devices(Arc<Mutex<Inner>>);
+pub struct OnlineDevices(Arc<Mutex<Inner>>);
 
 macro_rules! lock_and_call_inner {
     ($is_pub:vis $name:ident, $($arg:ident: $type:ty),* $(;$ret:ty)?) => {
@@ -31,9 +31,7 @@ macro_rules! lock_and_call_inner {
     };
 }
 
-// Todo remove things from map?
-
-impl Devices {
+impl OnlineDevices {
     lock_and_call_inner!(pub lookup, name: String; Option<Device>);
     lock_and_call_inner!(set_error, error: CommandError);
     lock_and_call_inner!(insert, device: Device);
@@ -119,7 +117,8 @@ impl Inner {
         if let Some(names) = self.map.get_mut(&event_path) {
             names.insert(name);
         } else {
-            self.map.insert(event_path, HashSet::from([name]));
+            let res = self.map.insert(event_path, HashSet::from([name]));
+            assert_eq!(res, None);
         }
     }
 
@@ -142,7 +141,7 @@ impl Inner {
     }
 }
 
-pub fn devices() -> Result<Devices, CommandError> {
+pub fn devices() -> Result<OnlineDevices, CommandError> {
     let mut handle = Command::new("evtest")
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -150,7 +149,7 @@ pub fn devices() -> Result<Devices, CommandError> {
         .map_err(CommandError::io)?;
 
     let reader = handle.stderr.take().unwrap();
-    let devices = Devices::default();
+    let devices = OnlineDevices::default();
 
     {
         let devices = devices.clone();

@@ -9,10 +9,10 @@ use dialoguer::{Confirm, MultiSelect};
 
 use crate::config;
 use crate::lock::Device;
-use crate::watch::Devices;
+use crate::watch::OnlineDevices;
 
 // todo deal with devices with multiple names
-pub fn wizard(devices: &Devices, custom_config_path: Option<PathBuf>) -> Result<()> {
+pub fn run(devices: &OnlineDevices, custom_config_path: Option<PathBuf>) -> Result<()> {
     let config: HashSet<_> = config::read(custom_config_path.clone())
         .wrap_err("Could not read custom config")?
         .into_iter()
