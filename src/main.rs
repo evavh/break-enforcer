@@ -26,10 +26,6 @@ use crate::check_inputs::wait_for_any_input;
 use crate::lock::Device;
 use crate::notification::notify_all_users;
 
-// For blocking input
-const MOUSE_NAMES: [&str; 2] = ["HSMshift", "Hippus N.V. HSMshift"];
-const KEYBOARD_NAME: &str = "HID 046a:010d";
-
 fn main() -> color_eyre::Result<()> {
     let online_devices = watch::devices().unwrap();
 
@@ -102,11 +98,12 @@ fn main() -> color_eyre::Result<()> {
 
         let mut locks = Vec::new();
 
-        for mouse in MOUSE_NAMES.map(find_event).into_iter().flatten() {
-            locks.push(mouse.clone().lock().unwrap());
-        }
-        for keyboard in find_event(KEYBOARD_NAME) {
-            locks.push(keyboard.clone().lock().unwrap());
+        for device in to_block
+            .iter()
+            .map(Device::name)
+            .filter_map(|name| online_devices.lookup(name))
+        {
+            locks.push(device.clone().lock().unwrap());
         }
 
         notify_all_users(&format!("Starting break timer for {work_duration:?}"));
@@ -126,10 +123,4 @@ fn block_on_new_input(recv_any_input: &Receiver<bool>) {
     }
 
     recv_any_input.recv().unwrap();
-}
-
-fn find_event(name: &str) -> Vec<Device> {
-    let devices = lock::list_devices();
-
-    devices.into_iter().filter(|x| x.name == name).collect()
 }

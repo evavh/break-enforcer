@@ -5,8 +5,7 @@ use std::hash::Hash;
 use std::io::{BufRead, BufReader};
 use std::process::{Child, ChildStderr, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::TryRecvError;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -57,7 +56,9 @@ impl Device {
     pub fn event_path(&self) -> String {
         self.event_path.clone()
     }
-
+    pub fn name(&self) -> String {
+        self.name.clone()
+    }
     pub fn lock(self) -> Result<LockedDevice, CommandError> {
         let Self { event_path, .. } = self;
         let (process, stderr) = lock_input(&event_path)?;
@@ -114,53 +115,4 @@ fn wait_for_stderr_end(stderr: ChildStderr) -> String {
         error.push(line.unwrap());
     }
     error.as_slice().join("\n")
-}
-
-pub fn list_devices() -> Vec<Device> {
-    let output = run_evtest();
-    println!("discovering input devices");
-    output
-        .into_iter()
-        .filter(|s| s.starts_with("/dev/input/event"))
-        .map(|s| {
-            let (event_path, name) = s.split_once(':').unwrap();
-            let event_path = event_path.trim().to_string();
-            let name = name.trim().to_string();
-            Device { event_path, name }
-        })
-        .collect()
-}
-
-fn run_evtest() -> Vec<String> {
-    let mut evtest_process = Command::new("evtest")
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-
-    let (tx, rx) = mpsc::channel();
-
-    let _handle = thread::spawn(move || {
-        let reader = BufReader::new(evtest_process.stderr.take().unwrap());
-        for line in reader.lines() {
-            let err_happened = line.is_err();
-            tx.send(line).unwrap();
-            if err_happened {
-                return;
-            }
-        }
-    });
-
-    thread::sleep(Duration::from_secs(2));
-
-    let mut lines = Vec::new();
-    loop {
-        match rx.try_recv() {
-            Ok(Ok(line)) => lines.push(line),
-            Ok(Err(e)) => panic!("Unexpected error {e}"),
-            Err(TryRecvError::Empty | TryRecvError::Disconnected) => {
-                return lines;
-            }
-        }
-    }
 }
