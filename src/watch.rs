@@ -31,7 +31,10 @@ macro_rules! lock_and_call_inner {
     };
 }
 
+// Todo remove things from map?
+
 impl Devices {
+    lock_and_call_inner!(pub lookup, name: String; Option<Device>);
     lock_and_call_inner!(set_error, error: CommandError);
     lock_and_call_inner!(insert, device: Device);
     lock_and_call_inner!(list_without_blocking,; Result<Vec<Device>, CommandError>);
@@ -78,6 +81,15 @@ impl Devices {
 }
 
 impl Inner {
+    fn lookup(&self, name: String) -> Option<Device> {
+        self.map
+            .iter()
+            .find(|(_, names)| names.contains(&name))
+            .map(|(path, _)| path)
+            .cloned()
+            .map(|event_path| Device { event_path, name })
+    }
+
     fn init_scan_done(&self) -> bool {
         self.init_scan_done
     }
