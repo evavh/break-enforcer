@@ -54,6 +54,10 @@ pub struct Device {
 }
 
 impl Device {
+    pub fn event_path(&self) -> String {
+        self.event_path.clone()
+    }
+
     pub fn lock(self) -> Result<LockedDevice, CommandError> {
         let Self { event_path, .. } = self;
         let (process, stderr) = lock_input(&event_path)?;
