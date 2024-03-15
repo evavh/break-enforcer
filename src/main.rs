@@ -19,23 +19,19 @@ mod setup;
 mod watch;
 
 use clap::Parser;
+use color_eyre::eyre::Context;
 
 use crate::check_inputs::inactivity_watcher;
 use crate::check_inputs::wait_for_any_input;
 use crate::lock::Device;
 use crate::notification::notify_all_users;
 
-// For monitoring input
-const MOUSE_DEVICE: &str = "/dev/input/mice";
-const KEYBOARD_DEVICE: &str = "/dev/input/by-id/usb-046a_010d-event-kbd";
-const ALL_DEVICES: [&str; 2] = [MOUSE_DEVICE, KEYBOARD_DEVICE];
-
 // For blocking input
 const MOUSE_NAMES: [&str; 2] = ["HSMshift", "Hippus N.V. HSMshift"];
 const KEYBOARD_NAME: &str = "HID 046a:010d";
 
-fn main() {
-    let devices = watch::devices().unwrap();
+fn main() -> color_eyre::Result<()> {
+    let online_devices = watch::devices().unwrap();
 
     let args = cli::Cli::parse();
     let (work_duration, break_duration, grace_duration) = match args.command {
@@ -45,13 +41,24 @@ fn main() {
             grace_duration,
         } => (work_duration, break_duration, grace_duration),
         cli::Commands::Wizard => {
-            setup::wizard(&devices, args.config_path).unwrap();
-            return;
+            setup::wizard(&online_devices, args.config_path).wrap_err("Error running wizard")?;
+            return Ok(());
         }
     };
 
-    let device_files = ALL_DEVICES.map(File::open).map(Result::unwrap);
-    let device_files2 = ALL_DEVICES.map(File::open).map(Result::unwrap);
+    let to_block =
+        config::read(args.config_path).wrap_err("Could not read devices to block from config")?;
+
+    let device_files = to_block
+        .iter()
+        .map(Device::event_path)
+        .map(File::open)
+        .map(Result::unwrap);
+    let device_files2 = to_block
+        .iter()
+        .map(Device::event_path)
+        .map(File::open)
+        .map(Result::unwrap);
 
     let (break_skip_sender, break_skip_receiver) = channel();
     let (work_start_sender, work_start_receiver) = channel();

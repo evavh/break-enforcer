@@ -14,7 +14,7 @@ pub fn wait_for_input(file: &mut File) {
     file.read_exact(&mut packet).unwrap();
 }
 
-pub fn wait_for_any_input(files: [File; 2]) -> Receiver<bool> {
+pub fn wait_for_any_input(files: impl Iterator<Item = File>) -> Receiver<bool> {
     let (send, recv) = channel();
 
     for mut file in files {
