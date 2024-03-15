@@ -1,0 +1,46 @@
+use color_eyre::eyre::{eyre, Context};
+use color_eyre::{Result, Section};
+
+use std::fs;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
+
+use crate::Device;
+
+fn setup_default_path() -> PathBuf {
+    let dir = Path::new(concat!("/etc/", env!("CARGO_CRATE_NAME"), ".toml"));
+    assert!(dir.is_dir(), "/etc should exist on unix");
+    dir.to_path_buf()
+}
+
+pub(crate) fn read(custom_path: Option<PathBuf>) -> Result<Vec<Device>> {
+    let path = custom_path.unwrap_or_else(setup_default_path);
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => {
+            return Err(err)
+                .wrap_err("Could not read config which might exist")
+                .with_note(|| format!("path: {}", path.display()))
+        }
+    };
+
+    let s = String::from_utf8(bytes).wrap_err("Corrupt config, contained non utf8")?;
+    toml::from_str(&s).wrap_err("Could not deserialize to list of devices")
+}
+
+pub(crate) fn write(to_lock: &[Device], custom_path: Option<PathBuf>) -> Result<()> {
+    let data =
+        toml::to_string_pretty(&to_lock).wrap_err("Could not serialize list of devices to toml")?;
+
+    let path = custom_path.unwrap_or_else(setup_default_path);
+    if let Some(dir) = path.parent() {
+        if !dir.is_dir() {
+            return Err(
+                eyre!("Dir does not exist!").with_note(|| format!("dir: {}", dir.display()))
+            );
+        }
+    }
+
+    fs::write(path, data.as_bytes()).wrap_err("Could not write serialized list to file")
+}
