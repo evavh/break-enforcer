@@ -5,6 +5,7 @@ use std::time::Duration;
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Periodically block devices in config (setup using wizard)
     Run {
         /// Period after which input will be disabled.
         /// run help for the format.
@@ -19,6 +20,8 @@ pub enum Commands {
         #[arg(short, long, value_name = "warn", value_parser = parse_duration)]
         grace_duration: Duration,
     },
+    /// Pick the devices to block and write them to a config file.
+    /// (Interactive UI)
     Wizard,
 }
 
