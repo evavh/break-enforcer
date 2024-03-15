@@ -12,7 +12,7 @@ use crate::lock::Device;
 use crate::watch::Devices;
 
 // todo deal with devices with multiple names
-pub fn list(devices: &Devices, custom_config_path: Option<PathBuf>) -> Result<()> {
+pub fn wizard(devices: &Devices, custom_config_path: Option<PathBuf>) -> Result<()> {
     let config: HashSet<_> = config::read(custom_config_path.clone())
         .wrap_err("Could not read custom config")?
         .into_iter()
