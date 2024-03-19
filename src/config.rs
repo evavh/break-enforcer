@@ -1,11 +1,19 @@
 use color_eyre::eyre::{eyre, Context};
 use color_eyre::{Result, Section};
+use serde::{Serialize, Deserialize};
 
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use crate::watch::InputId;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
+pub struct InputFilter {
+    pub id: InputId,
+    /// empty name means block everything
+    pub names: Vec<String>,
+}
 
 fn setup_default_path() -> PathBuf {
     let dir = Path::new(concat!("/etc/", env!("CARGO_CRATE_NAME"), ".toml"));
@@ -16,7 +24,7 @@ fn setup_default_path() -> PathBuf {
     dir.to_path_buf()
 }
 
-pub(crate) fn read(custom_path: Option<PathBuf>) -> Result<Vec<InputId>> {
+pub(crate) fn read(custom_path: Option<PathBuf>) -> Result<Vec<InputFilter>> {
     let path = custom_path.unwrap_or_else(setup_default_path);
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
@@ -32,7 +40,7 @@ pub(crate) fn read(custom_path: Option<PathBuf>) -> Result<Vec<InputId>> {
     toml::from_str(&s).wrap_err("Could not deserialize to list of devices")
 }
 
-pub(crate) fn write(to_lock: &[InputId], custom_path: Option<PathBuf>) -> Result<()> {
+pub(crate) fn write(to_lock: &[InputFilter], custom_path: Option<PathBuf>) -> Result<()> {
     let data =
         toml::to_string_pretty(&to_lock).wrap_err("Could not serialize list of devices to toml")?;
 

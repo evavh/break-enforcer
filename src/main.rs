@@ -1,6 +1,7 @@
 #![feature(thread_sleep_until)]
 #![feature(iter_intersperse)]
 #![feature(slice_flatten)]
+#![feature(io_error_more)]
 
 use std::{
     sync::{
@@ -95,7 +96,7 @@ fn main() -> color_eyre::Result<()> {
 
         let mut locks = Vec::new();
 
-        for device_id in to_block.iter().copied() {
+        for device_id in to_block.iter().cloned() {
             locks.push(
                 online_devices
                     .lock(device_id)
