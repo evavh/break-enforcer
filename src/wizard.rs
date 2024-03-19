@@ -23,10 +23,11 @@ pub fn run(devices: &OnlineDevices, custom_config_path: Option<PathBuf>) -> Resu
     for BlockableInput { names, .. } in &mut inputs {
         names.sort()
     }
-    let inputs: Vec<_> = inputs
+    let mut inputs: Vec<_> = inputs
         .into_iter()
         .flat_map(|BlockableInput { names, id }| names.into_iter().map(move |n| (id, n)))
         .collect();
+    inputs.dedup_by(|a, b| *a == *b);
 
     let mut options: Vec<_> = inputs
         .iter()
