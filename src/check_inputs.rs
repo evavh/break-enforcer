@@ -9,7 +9,10 @@ use std::{
     thread,
 };
 
-use crate::watch::{InputId, NewInput};
+use crate::{
+    config::InputFilter,
+    watch::NewInput,
+};
 
 pub fn wait_for_input(file: &mut File) -> std::io::Result<()> {
     let mut packet = [0u8; 24];
@@ -44,7 +47,7 @@ pub type InputResult = Result<bool, Arc<io::Error>>;
 
 pub(crate) fn watcher(
     new: Receiver<NewInput>,
-    to_block: Vec<InputId>,
+    to_block: Vec<InputFilter>,
 ) -> color_eyre::Result<(
     Receiver<Result<bool, Arc<io::Error>>>,
     Receiver<Result<bool, Arc<io::Error>>>,
@@ -54,7 +57,11 @@ pub(crate) fn watcher(
 
     thread::spawn(move || loop {
         let input = new.recv().unwrap();
-        if !to_block.contains(&input.id) {
+        if !to_block
+            .iter()
+            .filter(|filter| filter.id == input.id)
+            .any(|filter| filter.names.contains(&input.name))
+        {
             continue;
         }
 

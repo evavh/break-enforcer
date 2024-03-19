@@ -1,5 +1,6 @@
 use core::fmt;
 use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -12,6 +13,8 @@ use color_eyre::eyre::Context;
 use color_eyre::{Result, Section};
 use serde::{Deserialize, Serialize};
 
+use crate::config::InputFilter;
+
 struct Device {
     raw_dev: evdev::Device,
 }
@@ -23,20 +26,24 @@ struct Device {
 #[derive(Hash, PartialEq, Eq)]
 struct DeviceKey(std::os::fd::RawFd);
 
+fn device_name(device: &evdev::Device) -> String {
+    device
+        .unique_name()
+        .or(device.name())
+        .map(String::from)
+        .unwrap_or_else(|| {
+            let id = InputId::from(device.input_id());
+            format!("Unknown device, id: {}", id)
+        })
+}
+
 impl Device {
-    fn key(&self) -> DeviceKey {
-        DeviceKey(self.raw_dev.as_raw_fd())
+    fn name(&self) -> String {
+        device_name(&self.raw_dev)
     }
 
-    fn name(&self) -> String {
-        self.raw_dev
-            .unique_name()
-            .or(self.raw_dev.name())
-            .map(String::from)
-            .unwrap_or_else(|| {
-                let id = InputId::from(self.raw_dev.input_id());
-                format!("Unknown device, id: {}", id)
-            })
+    fn key(&self) -> DeviceKey {
+        DeviceKey(self.raw_dev.as_raw_fd())
     }
 }
 
@@ -87,22 +94,22 @@ pub struct OnlineDevices {
 impl OnlineDevices {
     lock_and_call_inner!(pub list_inputs,; Vec<BlockableInput>);
     lock_and_call_inner!(insert, raw_dev: evdev::Device; bool);
-    lock_and_call_inner!(lock_all_with, id: InputId; Result<()>);
-    lock_and_call_inner!(unlock_all_with, id: InputId; Result<()>);
+    lock_and_call_inner!(lock_all_matching, id: InputFilter; Result<()>);
+    lock_and_call_inner!(unlock_all_matching, id: InputFilter; Result<()>);
 
     /// will also ensure that if the device is connected before
     /// the lockguard is dropped that it is locked
-    pub(crate) fn lock(&self, id: InputId) -> Result<LockGuard> {
+    pub(crate) fn lock(&self, input: InputFilter) -> Result<LockGuard> {
         let (tx, rx) = std::sync::mpsc::channel();
         self.tx
-            .send(Order::Lock(id, tx))
+            .send(Order::Lock(input.clone(), tx))
             .expect("devices should never end/panic");
 
         let lock_res = rx.recv().expect("devices should never end/panic");
         lock_res.wrap_err("Could not lock device")?;
 
         Ok(LockGuard {
-            id,
+            filter: input,
             tx: self.tx.clone(),
             dropped: false,
         })
@@ -110,14 +117,14 @@ impl OnlineDevices {
 }
 
 enum Order {
-    Lock(InputId, mpsc::Sender<Result<()>>),
-    UnLock(InputId, mpsc::Sender<Result<()>>),
+    Lock(InputFilter, mpsc::Sender<Result<()>>),
+    UnLock(InputFilter, mpsc::Sender<Result<()>>),
 }
 
 /// use `unlock` to re-enable the disabled input device
 #[must_use]
 pub struct LockGuard {
-    id: InputId,
+    filter: InputFilter,
     tx: mpsc::Sender<Order>,
     // skip backup unlock if user did things right
     dropped: bool,
@@ -127,7 +134,7 @@ impl LockGuard {
     pub(crate) fn unlock(mut self) -> Result<()> {
         let (tx, rx) = std::sync::mpsc::channel();
         self.tx
-            .send(Order::UnLock(self.id, tx))
+            .send(Order::UnLock(self.filter.clone(), tx))
             .expect("devices should never end/panic");
 
         rx.recv().expect("devices should never end/panic")?;
@@ -143,7 +150,7 @@ impl Drop for LockGuard {
             return; // nothing to do
         }
         let (tx, _) = std::sync::mpsc::channel();
-        let _do_not_panic_in_drop = self.tx.send(Order::UnLock(self.id, tx));
+        let _do_not_panic_in_drop = self.tx.send(Order::UnLock(self.filter.clone(), tx));
         eprintln!(
             "Should not drop LockGuard but instead destroy by calling unlock
             since drop can not return an error"
@@ -183,12 +190,15 @@ impl Inner {
             .collect()
     }
 
-    fn unlock_all_with(&mut self, id: InputId) -> Result<()> {
-        let Some(to_lock) = self.id_to_devices.get_mut(&id) else {
+    fn unlock_all_matching(&mut self, filter: InputFilter) -> Result<()> {
+        let Some(to_lock) = self.id_to_devices.get_mut(&filter.id) else {
             return Ok(());
         };
 
-        for device in to_lock.values_mut() {
+        for device in to_lock
+            .values_mut()
+            .filter(|device| filter.names.contains(&device.name()))
+        {
             device
                 .raw_dev
                 .ungrab()
@@ -198,17 +208,24 @@ impl Inner {
         Ok(())
     }
 
-    fn lock_all_with(&mut self, id: InputId) -> Result<()> {
-        let Some(to_lock) = self.id_to_devices.get_mut(&id) else {
+    fn lock_all_matching(&mut self, filter: InputFilter) -> Result<()> {
+        let Some(to_lock) = self.id_to_devices.get_mut(&filter.id) else {
             return Ok(());
         };
 
-        for device in to_lock.values_mut() {
-            device
-                .raw_dev
-                .grab()
-                .wrap_err("Could not grab (acquire exclusive access) to device")
-                .with_note(|| format!("device name: {}", device.name()))?;
+        for device in to_lock
+            .values_mut()
+            .filter(|device| filter.names.contains(&device.name()))
+        {
+            match device.raw_dev.grab() {
+                Ok(_) => (),
+                Err(e) if e.kind() == ErrorKind::ResourceBusy => (),
+                err @ Err(_) => {
+                    return err
+                        .wrap_err("Could not grab (acquire exclusive access) to device")
+                        .with_note(|| format!("device name: {}", device.name()))
+                }
+            }
         }
         Ok(())
     }
@@ -223,6 +240,7 @@ pub struct BlockableInput {
 #[derive(Clone)]
 pub struct NewInput {
     pub id: InputId,
+    pub name: String,
     pub path: PathBuf,
 }
 
@@ -247,12 +265,12 @@ pub fn devices() -> (OnlineDevices, Receiver<NewInput>) {
         thread::spawn(move || loop {
             scan_and_process_new(&online, &new_dev_tx);
             match order_rx.recv_timeout(Duration::from_secs(5)) {
-                Ok(Order::Lock(id, answer)) => {
-                    let res = online.lock_all_with(id);
+                Ok(Order::Lock(filter, answer)) => {
+                    let res = online.lock_all_matching(filter);
                     answer.send(res).expect("lock fn does not panic");
                 }
-                Ok(Order::UnLock(id, answer)) => {
-                    let res = online.unlock_all_with(id);
+                Ok(Order::UnLock(filter, answer)) => {
+                    let res = online.unlock_all_matching(filter);
                     answer.send(res).expect("unlock fn does not panic");
                 }
                 Err(RecvTimeoutError::Timeout) => continue,
@@ -267,11 +285,13 @@ pub fn devices() -> (OnlineDevices, Receiver<NewInput>) {
 fn scan_and_process_new(online: &OnlineDevices, new_dev_tx: &mpsc::Sender<NewInput>) {
     for (event_path, device) in evdev::enumerate() {
         let id = InputId::from(device.input_id());
+        let name = device_name(&device);
         let new = online.insert(device);
         if new {
             new_dev_tx
                 .send(NewInput {
                     id,
+                    name,
                     path: event_path,
                 })
                 .expect("watcher should never end and drop rx");
