@@ -5,15 +5,18 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use crate::Device;
+use crate::watch::InputId;
 
 fn setup_default_path() -> PathBuf {
     let dir = Path::new(concat!("/etc/", env!("CARGO_CRATE_NAME"), ".toml"));
-    assert!(dir.is_dir(), "/etc should exist on unix");
+    assert!(
+        dir.parent().expect("path has two components").is_dir(),
+        "/etc should exist on unix"
+    );
     dir.to_path_buf()
 }
 
-pub(crate) fn read(custom_path: Option<PathBuf>) -> Result<Vec<Device>> {
+pub(crate) fn read(custom_path: Option<PathBuf>) -> Result<Vec<InputId>> {
     let path = custom_path.unwrap_or_else(setup_default_path);
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
@@ -29,7 +32,7 @@ pub(crate) fn read(custom_path: Option<PathBuf>) -> Result<Vec<Device>> {
     toml::from_str(&s).wrap_err("Could not deserialize to list of devices")
 }
 
-pub(crate) fn write(to_lock: &[Device], custom_path: Option<PathBuf>) -> Result<()> {
+pub(crate) fn write(to_lock: &[InputId], custom_path: Option<PathBuf>) -> Result<()> {
     let data =
         toml::to_string_pretty(&to_lock).wrap_err("Could not serialize list of devices to toml")?;
 

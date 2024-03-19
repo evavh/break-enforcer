@@ -8,8 +8,7 @@ use color_eyre::Result;
 use dialoguer::{Confirm, MultiSelect};
 
 use crate::config;
-use crate::lock::Device;
-use crate::watch::OnlineDevices;
+use crate::watch::{BlockableInput, OnlineDevices};
 
 // todo deal with devices with multiple names
 pub fn run(devices: &OnlineDevices, custom_config_path: Option<PathBuf>) -> Result<()> {
@@ -18,10 +17,21 @@ pub fn run(devices: &OnlineDevices, custom_config_path: Option<PathBuf>) -> Resu
         .into_iter()
         .collect();
 
-    let devices = devices.list()?;
-    let mut options: Vec<_> = devices
-        .iter()
-        .map(|dev @ Device { name, .. }| (name, config.contains(dev)))
+    let mut inputs = devices.list_inputs();
+    let mut options: Vec<_> = inputs
+        .iter_mut()
+        .map(|BlockableInput { names, id }| (names, config.contains(&id)))
+        .map(|(names, checked)| {
+            names.dedup();
+            (
+                names
+                    .iter()
+                    .map(String::as_str)
+                    .intersperse("\n\t& ")
+                    .collect::<String>(),
+                checked,
+            )
+        })
         .collect();
 
     loop {
@@ -41,14 +51,21 @@ pub fn run(devices: &OnlineDevices, custom_config_path: Option<PathBuf>) -> Resu
             // enter from the multiselect
             thread::sleep(Duration::from_secs(2));
             let mut locked = Vec::new();
+            for option in &mut options {
+                option.1 = false;
+            }
             for item in &selection {
                 options[*item].1 = true;
-                locked.push(devices[*item].clone().lock()?);
+                let id = inputs[*item].id;
+                locked.push(devices.lock(id)?);
             }
 
             println!("Try to use them, they should be blocked");
             thread::sleep(Duration::from_secs(8));
             println!("\n\nUnlocking, Stop typing!");
+            for lock in locked {
+                lock.unlock()?
+            }
         }
         thread::sleep(Duration::from_secs(2));
 
@@ -62,12 +79,11 @@ pub fn run(devices: &OnlineDevices, custom_config_path: Option<PathBuf>) -> Resu
         };
 
         if ready {
-            let selected: Vec<_> = devices
+            let selected: Vec<_> = inputs
                 .iter()
                 .enumerate()
                 .filter(|(i, _)| selection.contains(i))
-                .map(|(_, dev)| dev)
-                .cloned()
+                .map(|(_, dev)| dev.id)
                 .collect();
             config::write(&selected, custom_config_path).unwrap();
             return Ok(());

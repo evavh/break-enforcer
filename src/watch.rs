@@ -1,183 +1,280 @@
-use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, BufReader};
-use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use core::fmt;
+use std::collections::HashMap;
+use std::os::fd::AsRawFd;
+use std::path::PathBuf;
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use crate::lock::CommandError;
-use crate::lock::Device;
+use base64::{engine::general_purpose, Engine as _};
+use color_eyre::eyre::Context;
+use color_eyre::{Result, Section};
+use serde::{Deserialize, Serialize};
 
-type EventPath = String;
-type Names = HashSet<String>;
-
-#[derive(Debug, Default)]
-struct Inner {
-    init_scan_done: bool,
-    max_period: Option<Duration>,
-    last_added: Option<Instant>,
-    err: Option<CommandError>,
-    map: HashMap<EventPath, Names>,
+struct Device {
+    raw_dev: evdev::Device,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct OnlineDevices(Arc<Mutex<Inner>>);
+/// need to modify Device (grap/ungrap) therefore can not use a Set
+/// instead we use a Map with a characteristic of the device as
+/// "Key"
+// File descriptor is unique within a process so a good key
+#[derive(Hash, PartialEq, Eq)]
+struct DeviceKey(std::os::fd::RawFd);
+
+impl Device {
+    fn key(&self) -> DeviceKey {
+        DeviceKey(self.raw_dev.as_raw_fd())
+    }
+
+    fn name(&self) -> String {
+        self.raw_dev
+            .unique_name()
+            .or(self.raw_dev.name())
+            .map(String::from)
+            .unwrap_or_else(|| {
+                let id = InputId::from(self.raw_dev.input_id());
+                format!("Unknown device, id: {}", id)
+            })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Hash)]
+pub struct InputId {
+    vendor: u16,
+    product: u16,
+    version: u16,
+}
+
+impl fmt::Display for InputId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let data = [
+            self.vendor.to_be_bytes(),
+            self.product.to_be_bytes(),
+            self.version.to_be_bytes(),
+        ];
+
+        let base64 = general_purpose::URL_SAFE_NO_PAD.encode(data.flatten());
+        f.write_str(base64.as_str())
+    }
+}
+
+impl From<evdev::InputId> for InputId {
+    fn from(value: evdev::InputId) -> Self {
+        Self {
+            vendor: value.vendor(),
+            product: value.product(),
+            version: value.version(),
+        }
+    }
+}
 
 macro_rules! lock_and_call_inner {
     ($is_pub:vis $name:ident, $($arg:ident: $type:ty),* $(;$ret:ty)?) => {
         $is_pub fn $name(&self, $($arg: $type),*) $(-> $ret)? {
-            self.0.lock().unwrap().$name($($arg),*)
+            self.inner.lock().unwrap().$name($($arg),*)
         }
     };
 }
 
+#[derive(Clone)]
+pub struct OnlineDevices {
+    tx: mpsc::Sender<Order>,
+    inner: Arc<Mutex<Inner>>,
+}
+
 impl OnlineDevices {
-    lock_and_call_inner!(pub lookup, name: String; Option<Device>);
-    lock_and_call_inner!(set_error, error: CommandError);
-    lock_and_call_inner!(insert, device: Device);
-    lock_and_call_inner!(list_without_blocking,; Result<Vec<Device>, CommandError>);
-    lock_and_call_inner!(n_discovered,; Result<usize, CommandError>);
-    lock_and_call_inner!(max_period,; Option<Duration>);
-    lock_and_call_inner!(last_added,; Option<Instant>);
-    lock_and_call_inner!(init_scan_done,; bool);
+    lock_and_call_inner!(pub list_inputs,; Vec<BlockableInput>);
+    lock_and_call_inner!(insert, raw_dev: evdev::Device; bool);
+    lock_and_call_inner!(lock_all_with, id: InputId; Result<()>);
+    lock_and_call_inner!(unlock_all_with, id: InputId; Result<()>);
 
-    pub fn list(&self) -> Result<Vec<Device>, CommandError> {
-        if self.init_scan_done() {
-            self.list_without_blocking()
-        } else {
-            self.block_till_filled()?;
-            self.list_without_blocking()
-        }
+    /// will also ensure that if the device is connected before
+    /// the lockguard is dropped that it is locked
+    pub(crate) fn lock(&self, id: InputId) -> Result<LockGuard> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.tx
+            .send(Order::Lock(id, tx))
+            .expect("devices should never end/panic");
+
+        let lock_res = rx.recv().expect("devices should never end/panic");
+        lock_res.wrap_err("Could not lock device")?;
+
+        Ok(LockGuard {
+            id,
+            tx: self.tx.clone(),
+            dropped: false,
+        })
     }
+}
 
-    fn block_till_filled(&self) -> Result<(), CommandError> {
-        let start = Instant::now();
-        while self.n_discovered()? < 2 {
-            thread::sleep(Duration::from_millis(50));
+enum Order {
+    Lock(InputId, mpsc::Sender<Result<()>>),
+    UnLock(InputId, mpsc::Sender<Result<()>>),
+}
 
-            if start.elapsed() > Duration::from_secs(5) && self.n_discovered()? > 0 {
-                break;
-            };
-        }
+/// use `unlock` to re-enable the disabled input device
+#[must_use]
+pub struct LockGuard {
+    id: InputId,
+    tx: mpsc::Sender<Order>,
+    // skip backup unlock if user did things right
+    dropped: bool,
+}
 
-        loop {
-            let period = self
-                .max_period()
-                .expect("should be Some given there are 2 devices discovered");
-            let prev_last_added = self.last_added().expect("same");
-            let margin = Duration::from_millis(200);
-            thread::sleep_until(prev_last_added + period + margin);
+impl LockGuard {
+    pub(crate) fn unlock(mut self) -> Result<()> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.tx
+            .send(Order::UnLock(self.id, tx))
+            .expect("devices should never end/panic");
 
-            if self.last_added().expect("same") > prev_last_added {
-                self.0.lock().unwrap().init_scan_done = false;
-                break; // must have discovered all
-            }
-        }
-
+        rx.recv().expect("devices should never end/panic")?;
+        self.dropped = true;
         Ok(())
     }
 }
 
-impl Inner {
-    fn lookup(&self, name: String) -> Option<Device> {
-        self.map
-            .iter()
-            .find(|(_, names)| names.contains(&name))
-            .map(|(path, _)| path)
-            .cloned()
-            .map(|event_path| Device { event_path, name })
-    }
-
-    fn init_scan_done(&self) -> bool {
-        self.init_scan_done
-    }
-    fn last_added(&self) -> Option<Instant> {
-        self.last_added
-    }
-    fn max_period(&self) -> Option<Duration> {
-        self.max_period
-    }
-
-    fn n_discovered(&self) -> Result<usize, CommandError> {
-        if let Some(err) = self.err.clone() {
-            return Err(err);
+/// backup, user should call unlock!
+impl Drop for LockGuard {
+    fn drop(&mut self) {
+        if self.dropped {
+            return; // nothing to do
         }
-        Ok(self.map.len())
-    }
-
-    fn set_error(&mut self, e: CommandError) {
-        self.err = Some(e);
-    }
-
-    fn insert(&mut self, Device { event_path, name }: Device) {
-        if let Some(last_added) = self.last_added {
-            self.max_period = self.max_period.max(Some(last_added.elapsed()));
-        }
-        self.last_added = Some(Instant::now());
-        if let Some(names) = self.map.get_mut(&event_path) {
-            names.insert(name);
-        } else {
-            let res = self.map.insert(event_path, HashSet::from([name]));
-            assert_eq!(res, None);
-        }
-    }
-
-    fn list_without_blocking(&self) -> Result<Vec<Device>, CommandError> {
-        if let Some(error_happened) = self.err.clone() {
-            return Err(error_happened);
-        }
-
-        let mut list: Vec<_> = self
-            .map
-            .iter()
-            .map(|(event_path, name)| Device {
-                event_path: event_path.clone(),
-                name: name.iter().next().unwrap().clone(),
-            })
-            .collect();
-        list.sort_unstable_by_key(|dev| dev.name.clone());
-
-        Ok(list)
+        let (tx, _) = std::sync::mpsc::channel();
+        let _do_not_panic_in_drop = self.tx.send(Order::UnLock(self.id, tx));
+        eprintln!(
+            "Should not drop LockGuard but instead destroy by calling unlock
+            since drop can not return an error"
+        )
     }
 }
 
-pub fn devices() -> Result<OnlineDevices, CommandError> {
-    let mut handle = Command::new("evtest")
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(CommandError::io)?;
+struct Inner {
+    // multiple devices with the same id could have different
+    // names due to manufacturer mistake
+    // device serial could be duplicate due to manufacturer mistake
+    id_to_devices: HashMap<InputId, HashMap<DeviceKey, Device>>,
+}
 
-    let reader = handle.stderr.take().unwrap();
-    let devices = OnlineDevices::default();
+impl Inner {
+    /// if it was already present ignore
+    fn insert(&mut self, raw_dev: evdev::Device) -> bool {
+        let id = raw_dev.input_id().into();
+        let device = Device { raw_dev };
+        if let Some(in_map) = self.id_to_devices.get_mut(&id) {
+            in_map.insert(device.key(), device).is_some()
+        } else {
+            self.id_to_devices
+                .insert(id, HashMap::from([(device.key(), device)]));
+            true
+        }
+    }
 
+    fn list_inputs(&mut self) -> Vec<BlockableInput> {
+        self.id_to_devices
+            .iter()
+            .map(|(id, devices)| {
+                let mut names: Vec<_> = devices.values().map(Device::name).collect();
+                names.sort();
+                BlockableInput { id: *id, names }
+            })
+            .collect()
+    }
+
+    fn unlock_all_with(&mut self, id: InputId) -> Result<()> {
+        let Some(to_lock) = self.id_to_devices.get_mut(&id) else {
+            return Ok(());
+        };
+
+        for device in to_lock.values_mut() {
+            device
+                .raw_dev
+                .ungrab()
+                .wrap_err("Could not ungrab (release exclusive access) to device")
+                .with_note(|| format!("device name: {}", device.name()))?;
+        }
+        Ok(())
+    }
+
+    fn lock_all_with(&mut self, id: InputId) -> Result<()> {
+        let Some(to_lock) = self.id_to_devices.get_mut(&id) else {
+            return Ok(());
+        };
+
+        for device in to_lock.values_mut() {
+            device
+                .raw_dev
+                .grab()
+                .wrap_err("Could not grab (acquire exclusive access) to device")
+                .with_note(|| format!("device name: {}", device.name()))?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct BlockableInput {
+    pub id: InputId,
+    pub names: Vec<String>,
+}
+
+#[derive(Clone)]
+pub struct NewInput {
+    pub id: InputId,
+    pub path: PathBuf,
+}
+
+/* TODO: use ionotify instead? (watching /dev/input)
+ * would need async to also wait for rx_recv
+ * or another thread sending `Order::scan`
+ * look at cpu usage first though
+ * <15-03-24, dvdsk> */
+pub fn devices() -> (OnlineDevices, Receiver<NewInput>) {
+    let (order_tx, order_rx) = mpsc::channel();
+    let online = OnlineDevices {
+        tx: order_tx,
+        inner: Arc::new(Mutex::new(Inner {
+            id_to_devices: HashMap::new(),
+        })),
+    };
+
+    let (new_dev_tx, new_dev_rx) = mpsc::channel();
+    scan_and_process_new(&online, &new_dev_tx);
     {
-        let devices = devices.clone();
-        thread::spawn(move || {
-            let reader = BufReader::new(reader);
-            for line in reader.lines() {
-                let line = match line {
-                    Err(e) => {
-                        devices.set_error(CommandError::io(e));
-                        return;
-                    }
-                    Ok(line) => line,
-                };
-                if line.contains("Not running as root") {
-                    devices.set_error(CommandError::NotRunningAsRoot);
-                    return;
+        let online = online.clone();
+        thread::spawn(move || loop {
+            scan_and_process_new(&online, &new_dev_tx);
+            match order_rx.recv_timeout(Duration::from_secs(5)) {
+                Ok(Order::Lock(id, answer)) => {
+                    let res = online.lock_all_with(id);
+                    answer.send(res).expect("lock fn does not panic");
                 }
-
-                if !line.starts_with("/dev/input/event") {
-                    continue;
+                Ok(Order::UnLock(id, answer)) => {
+                    let res = online.unlock_all_with(id);
+                    answer.send(res).expect("unlock fn does not panic");
                 }
-                let (event_path, name) = line.split_once(':').unwrap();
-                let event_path = event_path.trim().to_string();
-                let name = name.trim().to_string();
-                devices.insert(Device { event_path, name });
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => return,
             }
         });
     }
 
-    Ok(devices)
+    (online, new_dev_rx)
+}
+
+fn scan_and_process_new(online: &OnlineDevices, new_dev_tx: &mpsc::Sender<NewInput>) {
+    for (event_path, device) in evdev::enumerate() {
+        let id = InputId::from(device.input_id());
+        let new = online.insert(device);
+        if new {
+            new_dev_tx
+                .send(NewInput {
+                    id,
+                    path: event_path,
+                })
+                .expect("watcher should never end and drop rx");
+        }
+    }
 }
