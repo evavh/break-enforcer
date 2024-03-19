@@ -1,6 +1,6 @@
 use color_eyre::eyre::{eyre, Context};
 use color_eyre::{Result, Section};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use std::fs;
 use std::io::ErrorKind;
@@ -16,7 +16,7 @@ pub struct InputFilter {
 }
 
 fn setup_default_path() -> PathBuf {
-    let dir = Path::new(concat!("/etc/", env!("CARGO_CRATE_NAME"), ".toml"));
+    let dir = Path::new(concat!("/etc/", env!("CARGO_CRATE_NAME"), ".ron"));
     assert!(
         dir.parent().expect("path has two components").is_dir(),
         "/etc should exist on unix"
@@ -37,12 +37,12 @@ pub(crate) fn read(custom_path: Option<PathBuf>) -> Result<Vec<InputFilter>> {
     };
 
     let s = String::from_utf8(bytes).wrap_err("Corrupt config, contained non utf8")?;
-    toml::from_str(&s).wrap_err("Could not deserialize to list of devices")
+    ron::from_str(&s).wrap_err("Could not deserialize to list of devices")
 }
 
 pub(crate) fn write(to_lock: &[InputFilter], custom_path: Option<PathBuf>) -> Result<()> {
-    let data =
-        toml::to_string_pretty(&to_lock).wrap_err("Could not serialize list of devices to toml")?;
+    let data = ron::ser::to_string_pretty(&to_lock, ron::ser::PrettyConfig::default())
+        .wrap_err("Could not serialize list of devices to toml")?;
 
     let path = custom_path.unwrap_or_else(setup_default_path);
     if let Some(dir) = path.parent() {
