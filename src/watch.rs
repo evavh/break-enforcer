@@ -28,8 +28,8 @@ struct DeviceKey(std::os::fd::RawFd);
 
 fn device_name(device: &evdev::Device) -> String {
     device
-        .unique_name()
-        .or(device.name())
+        .name()
+        .or(device.unique_name())
         .map(String::from)
         .unwrap_or_else(|| {
             let id = InputId::from(device.input_id());
