@@ -1,28 +1,35 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use std::num::ParseFloatError;
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[derive(Debug, Args)]
+pub struct RunArgs {
+    /// Period after which input will be disabled.  
+    /// Note: run help command to see the duration format.
+    #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
+    pub work_duration: Duration,
+    /// Length of the breaks, after this period input is resumed.
+    /// Note: run help command to see the duration format.
+    #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
+    pub break_duration: Duration,
+    /// Duration ahead of the break to show a notification
+    /// Note: run help command to see the duration format.
+    #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
+    pub grace_duration: Duration,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    /// Periodically block devices in config (setup using wizard)
-    Run {
-        /// Period after which input will be disabled.
-        /// run help for the format.
-        #[arg(short, long, value_name = "work", value_parser = parse_duration)]
-        work_duration: Duration,
-        /// Length of the breaks, after this period input is resumed.
-        /// run help for the format.
-        #[arg(short, long, value_name = "break", value_parser = parse_duration)]
-        break_duration: Duration,
-        /// Duration ahead of the break to show a notification
-        /// run help for the format.
-        #[arg(short, long, value_name = "warn", value_parser = parse_duration)]
-        grace_duration: Duration,
-    },
+    /// Periodically block devices in config (setup using wizard).
+    Run(#[command(flatten)] RunArgs),
     /// Pick the devices to block and write them to a config file.
     /// (Interactive UI)
     Wizard,
+    /// Moves the executable to a suitable location and set up a service.
+    Install(#[command(flatten)] RunArgs),
+    /// Removed the installed service and executable.
+    Remove,
 }
 
 /// Disables specified input devices during breaks. The period between breaks,

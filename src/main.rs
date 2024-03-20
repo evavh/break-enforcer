@@ -14,11 +14,13 @@ use std::{
 
 use check_inputs::InputResult;
 use clap::Parser;
+use cli::RunArgs;
 use color_eyre::eyre::Context;
 
 mod check_inputs;
 mod cli;
 mod config;
+mod install;
 mod notification;
 mod watch;
 mod wizard;
@@ -28,7 +30,7 @@ use crate::notification::notify_all_users;
 
 fn main() -> color_eyre::Result<()> {
     color_eyre::install().expect("Only called once");
-    let args = cli::Cli::parse();
+    let cli = cli::Cli::parse();
 
     // check after args such that help can run without root
     if let sudo::RunningAs::User = sudo::check() {
@@ -40,20 +42,23 @@ fn main() -> color_eyre::Result<()> {
     }
 
     let (online_devices, new) = watch::devices();
-    let (work_duration, break_duration, grace_duration) = match args.command {
-        cli::Commands::Run {
-            work_duration,
-            break_duration,
-            grace_duration,
-        } => (work_duration, break_duration, grace_duration),
+    let RunArgs {
+        work_duration,
+        break_duration,
+        grace_duration,
+    } = match cli.command {
+        cli::Commands::Run(args) => args,
         cli::Commands::Wizard => {
-            wizard::run(&online_devices, args.config_path).wrap_err("Error running wizard")?;
-            return Ok(());
+            return wizard::run(&online_devices, cli.config_path).wrap_err("Error running wizard");
         }
+        cli::Commands::Install(args) => {
+            return install::set_up(args, cli.config_path).wrap_err("Could not install");
+        }
+        cli::Commands::Remove => return install::tear_down().wrap_err("Could not remove"),
     };
 
     let to_block =
-        config::read(args.config_path).wrap_err("Could not read devices to block from config")?;
+        config::read(cli.config_path).wrap_err("Could not read devices to block from config")?;
     let (recv_any_input, recv_any_input2) = check_inputs::watcher(new, to_block.clone())
         .wrap_err("Could not start watching to be locked devices for activaty")?;
 
