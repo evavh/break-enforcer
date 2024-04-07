@@ -49,11 +49,11 @@ pub struct Cli {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
-    #[error("Could not parse the second part of the time as number")]
+    #[error("Could not parse the seconds, input: {1}, error: {0}")]
     Second(ParseFloatError, String),
-    #[error("Could not parse the minute part of the time as number")]
+    #[error("Could not parse the minutes, input: {1}, error: {0}")]
     Minute(ParseFloatError, String),
-    #[error("Could not parse the minute part of the time as number")]
+    #[error("Could not parse the hours, input: {1}, error: {0}")]
     Hour(ParseFloatError, String),
 }
 
