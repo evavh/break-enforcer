@@ -70,7 +70,7 @@ fn main() -> color_eyre::Result<()> {
                 &break_skip_sender,
                 &break_skip_is_sent,
                 &recv_any_input2,
-                work_duration,
+                break_duration,
             );
         });
     }
