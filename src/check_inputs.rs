@@ -24,12 +24,12 @@ pub fn inactivity_watcher(
     break_skip_sender: &Sender<bool>,
     break_skip_sent: &Arc<AtomicBool>,
     input_receiver: &Receiver<InputResult>,
-    work_duration: std::time::Duration,
+    break_duration: std::time::Duration,
 ) {
     work_start_receiver.recv().unwrap();
 
     loop {
-        match input_receiver.recv_timeout(work_duration) {
+        match input_receiver.recv_timeout(break_duration) {
             Ok(Ok(_)) => (),
             Ok(Err(_)) => return,
             Err(RecvTimeoutError::Timeout) => {
