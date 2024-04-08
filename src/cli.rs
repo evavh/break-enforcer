@@ -57,17 +57,15 @@ pub enum ParseError {
     Hour(ParseFloatError, String),
 }
 
-macro_rules! err_builder {
-    ($name:ident, $variant:expr) => {
-        fn $name(e: ParseFloatError, s: &str) -> ParseError {
-            $variant(e, s.to_owned())
-        }
-    };
+fn second_err(e: ParseFloatError, s: &str) -> ParseError {
+    ParseError::Second(e, s.to_owned())
 }
-
-err_builder!(second_err, ParseError::Second);
-err_builder!(minute_err, ParseError::Minute);
-err_builder!(hour_err, ParseError::Hour);
+fn minute_err(e: ParseFloatError, s: &str) -> ParseError {
+    ParseError::Minute(e, s.to_owned())
+}
+fn hour_err(e: ParseFloatError, s: &str) -> ParseError {
+    ParseError::Hour(e, s.to_owned())
+}
 
 /// Parses a string in format
 ///     hh:mm:ss,
