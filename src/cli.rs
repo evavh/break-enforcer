@@ -87,7 +87,13 @@ pub(crate) fn parse_colon_duration(arg: &str) -> Result<f32, ParseError> {
     Ok(seconds)
 }
 
-/// Parse a string in format hh:mm:ss to a `Duration`
+/// Parse a string in two different formats to a `Duration`. The formats are:
+///  - 10h
+///  - 15m
+///  - 30s
+///  - hh:mm:ss,
+///  - mm:ss,
+///  - ss,
 pub(crate) fn parse_duration(arg: &str) -> Result<Duration, ParseError> {
     let seconds = if let Some(hours) = arg.strip_suffix('h') {
         60. * 60. * hours.parse::<f32>().map_err(|e| hour_err(e, hours))?
