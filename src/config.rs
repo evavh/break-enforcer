@@ -11,7 +11,8 @@ use crate::watch::InputId;
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
 pub struct InputFilter {
     pub id: InputId,
-    /// empty name means block everything
+    /// names, a single deviceid can have multiple blockable inputs with
+    /// different names
     pub names: Vec<String>,
 }
 
