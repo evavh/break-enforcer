@@ -92,7 +92,7 @@ fn main() -> color_eyre::Result<()> {
     loop {
         notify_all_users("Waiting for input to start work timer...");
         block_on_new_input(&recv_any_input).wrap_err("Could not block till new input")?;
-        notify_all_users(&format!("Starting work timer for {break_duration:?}"));
+        notify_all_users(&format!("Starting work timer for {work_duration:?}"));
         work_start_sender.send(true).unwrap();
         match break_skip_receiver.recv_timeout(break_duration - grace_duration) {
             Ok(_) => {
