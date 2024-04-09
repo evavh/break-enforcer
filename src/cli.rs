@@ -56,25 +56,23 @@ pub struct Cli {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
-    #[error("Could not parse the second part of the time as number")]
+    #[error("Could not parse the seconds, input: {1}, error: {0}")]
     Second(ParseFloatError, String),
-    #[error("Could not parse the minute part of the time as number")]
+    #[error("Could not parse the minutes, input: {1}, error: {0}")]
     Minute(ParseFloatError, String),
-    #[error("Could not parse the minute part of the time as number")]
+    #[error("Could not parse the hours, input: {1}, error: {0}")]
     Hour(ParseFloatError, String),
 }
 
-macro_rules! err_builder {
-    ($name:ident, $variant:expr) => {
-        fn $name(e: ParseFloatError, s: &str) -> ParseError {
-            $variant(e, s.to_owned())
-        }
-    };
+fn second_err(e: ParseFloatError, s: &str) -> ParseError {
+    ParseError::Second(e, s.to_owned())
 }
-
-err_builder!(second_err, ParseError::Second);
-err_builder!(minute_err, ParseError::Minute);
-err_builder!(hour_err, ParseError::Hour);
+fn minute_err(e: ParseFloatError, s: &str) -> ParseError {
+    ParseError::Minute(e, s.to_owned())
+}
+fn hour_err(e: ParseFloatError, s: &str) -> ParseError {
+    ParseError::Hour(e, s.to_owned())
+}
 
 /// Parses a string in format
 ///     hh:mm:ss,
@@ -96,7 +94,13 @@ pub(crate) fn parse_colon_duration(arg: &str) -> Result<f32, ParseError> {
     Ok(seconds)
 }
 
-/// Parse a string in format hh:mm:ss to a `Duration`
+/// Parse a string in two different formats to a `Duration`. The formats are:
+///  - 10h
+///  - 15m
+///  - 30s
+///  - hh:mm:ss,
+///  - mm:ss,
+///  - ss,
 pub(crate) fn parse_duration(arg: &str) -> Result<Duration, ParseError> {
     let seconds = if let Some(hours) = arg.strip_suffix('h') {
         60. * 60. * hours.parse::<f32>().map_err(|e| hour_err(e, hours))?

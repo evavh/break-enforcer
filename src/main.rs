@@ -16,6 +16,7 @@ use check_inputs::InputResult;
 use clap::Parser;
 use cli::RunArgs;
 use color_eyre::eyre::Context;
+use color_eyre::{eyre::eyre, Section};
 
 mod check_inputs;
 mod cli;
@@ -29,16 +30,21 @@ use crate::check_inputs::inactivity_watcher;
 use crate::notification::notify_all_users;
 
 fn main() -> color_eyre::Result<()> {
-    color_eyre::install().expect("Only called once");
+    color_eyre::config::HookBuilder::default()
+        .display_location_section(false)
+        .install()
+        .expect("Only called once");
     let cli = cli::Cli::parse();
 
     // check after args such that help can run without root
     if let sudo::RunningAs::User = sudo::check() {
-        panic!(concat!(
+        return Err(eyre!(concat!(
             "must run ",
             env!("CARGO_CRATE_NAME"),
-            " as root user"
-        ));
+            " as root user,\nExisting"
+        )))
+        .suppress_backtrace(true)
+        .suggestion("Run using sudo");
     }
 
     let (online_devices, new) = watch::devices();
@@ -59,6 +65,15 @@ fn main() -> color_eyre::Result<()> {
 
     let to_block =
         config::read(cli.config_path).wrap_err("Could not read devices to block from config")?;
+    if to_block.is_empty() {
+        return Err(eyre!(
+            "No config, do not know what to block. Please run the wizard. \nExiting"
+        ))
+        .suppress_backtrace(true)
+        .suggestion("Run the wizard")
+        .suggestion("Maybe you have a (wrong) custom location set?");
+    }
+
     let (recv_any_input, recv_any_input2) = check_inputs::watcher(new, to_block.clone())
         .wrap_err("Could not start watching to be locked devices for activaty")?;
 
@@ -75,7 +90,7 @@ fn main() -> color_eyre::Result<()> {
                 &break_skip_sender,
                 &break_skip_is_sent,
                 &recv_any_input2,
-                work_duration,
+                break_duration,
             );
         });
     }
