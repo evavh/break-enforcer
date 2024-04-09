@@ -45,16 +45,18 @@ pub type InputResult = Result<bool, Arc<io::Error>>;
 pub(crate) fn watcher(
     just_connected: Receiver<NewInput>,
     to_block: Vec<InputFilter>,
-) -> color_eyre::Result<(Receiver<InputResult>, Receiver<InputResult>)> {
+) -> (Receiver<InputResult>, Receiver<InputResult>) {
     let (tx1, rx1) = channel();
     let (tx2, rx2) = channel();
 
     thread::spawn(move || loop {
-        let input = just_connected.recv().unwrap();
+        let new_device = just_connected
+            .recv()
+            .expect("only disconnects at program exit");
         if !to_block
             .iter()
-            .filter(|filter| filter.id == input.id)
-            .any(|filter| filter.names.contains(&input.name))
+            .filter(|filter| filter.id == new_device.id)
+            .any(|filter| filter.names.contains(&new_device.name))
         {
             continue;
         }
@@ -62,19 +64,19 @@ pub(crate) fn watcher(
         let tx1 = tx1.clone();
         let tx2 = tx2.clone();
         thread::Builder::new()
-            .spawn(move || monitor_input(input, tx1, tx2))
-            .unwrap();
+            .spawn(move || monitor_input(new_device, &tx1, &tx2))
+            .expect("the OS should be able to spawn a thread");
     });
 
-    Ok((rx1, rx2))
+    (rx1, rx2)
 }
 
 fn monitor_input(
     input: NewInput,
-    tx1: Sender<Result<bool, Arc<io::Error>>>,
-    tx2: Sender<Result<bool, Arc<io::Error>>>,
+    tx1: &Sender<Result<bool, Arc<io::Error>>>,
+    tx2: &Sender<Result<bool, Arc<io::Error>>>,
 ) {
-    let mut file = match fs::File::open(&input.path) {
+    let mut file = match fs::File::open(input.path) {
         // means the device is disconnected
         Err(e) if e.kind() == io::ErrorKind::NotFound => return,
         Err(e) => {
@@ -97,7 +99,7 @@ fn monitor_input(
                 let _ig_err = tx2.send(Err(err));
                 return;
             }
-            Ok(_) => (),
+            Ok(()) => (),
         };
 
         let _ = tx1.send(Ok(true));
