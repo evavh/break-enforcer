@@ -41,8 +41,10 @@ jobs:
           compilers/
         key: ${{ runner.os }}-compile-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: compile
+    - name: add target
       run: rustup target add ${{ matrix.target }}
+
+    - name: compile
       run: cargo build --target ${{ matrix.target }} --release
 
     - name: Upload
