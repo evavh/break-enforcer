@@ -1,0 +1,89 @@
+name: Build and Release Stable
+
+on:
+  push:
+    # complemented with branch protection on main this will 
+    # run on any pull request merge
+    branches: main 
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  compile:
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+          - armv7-unknown-linux-musleabihf
+          - arm-unknown-linux-musleabihf
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        target: ${{ matrix.target }}
+        toolchain: stable
+
+    - uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+          compilers/
+        key: ${{ runner.os }}-compile-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: compile
+      run: ./build.sh ${{ matrix.target }}
+
+    - name: Upload
+      uses: actions/upload-artifact@v4
+      with: 
+        name: ${{ matrix.target }}
+        path: target/${{ matrix.target }}/release/break-enforcer-s
+
+  release:
+    runs-on: ubuntu-latest
+    needs: 
+      - compile
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+          - armv7-unknown-linux-musleabihf
+          - arm-unknown-linux-musleabihf
+    steps:
+    - uses: actions/checkout@v4
+    - name: Download the binaries
+      uses: actions/download-artifact@v4
+    - name: find tag
+      id: tag
+      run: |
+          VERSION=$(grep '^version =' main/Cargo.toml | head -n 1 | awk '{print $3}' | tr -d '"' | tr -d "\n")
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Found version: $VERSION"
+          echo "::set-output name=version::$VERSION"
+    - name: rename bins
+      run: |
+        suffix=`echo ${{ matrix.target }} | cut -d "-" -f 1`
+        mv ${{ matrix.target }}/break-enforcer-s break-enforcer-s$suffix
+    - name: changelog as release body
+      run: cat CHANGELOG.md | awk '/^## /{if (++c == 2) {exit}} c == 1' | tail -n +2 > ${{ github.workspace }}-CHANGELOG.txt
+    - name: Release
+      uses: "softprops/action-gh-release@v1"
+      with:
+        body_path: ${{ github.workspace }}-CHANGELOG.txt
+        prerelease: false
+        name: Release ${{ env.VERSION }}
+        files: |
+          break-enforcer-s*
+        tag_name: ${{ env.VERSION }}
