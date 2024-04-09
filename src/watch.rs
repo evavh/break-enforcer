@@ -161,9 +161,6 @@ impl Inner {
         if let Some(in_map) = self.id_to_devices.get_mut(&id) {
             let existing = in_map.insert(event_path, device);
             let is_new = existing.is_none();
-            if is_new {
-                dbg!();
-            }
             is_new
         } else {
             self.id_to_devices
