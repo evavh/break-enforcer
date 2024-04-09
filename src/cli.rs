@@ -44,7 +44,7 @@ pub enum Commands {
 ///    example: 10:40
 ///         ten minutes and 40 seconds
 ///
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[command(version, about, verbatim_doc_comment)]
 pub struct Cli {
     #[command(subcommand)]
