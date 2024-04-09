@@ -9,10 +9,7 @@ use std::{
     thread,
 };
 
-use crate::{
-    config::InputFilter,
-    watch::NewInput,
-};
+use crate::{config::InputFilter, watch::NewInput};
 
 pub fn wait_for_input(file: &mut File) -> std::io::Result<()> {
     let mut packet = [0u8; 24];
@@ -24,12 +21,12 @@ pub fn inactivity_watcher(
     break_skip_sender: &Sender<bool>,
     break_skip_sent: &Arc<AtomicBool>,
     input_receiver: &Receiver<InputResult>,
-    work_duration: std::time::Duration,
+    break_duration: std::time::Duration,
 ) {
     work_start_receiver.recv().unwrap();
 
     loop {
-        match input_receiver.recv_timeout(work_duration) {
+        match input_receiver.recv_timeout(break_duration) {
             Ok(Ok(_)) => (),
             Ok(Err(_)) => return,
             Err(RecvTimeoutError::Timeout) => {
@@ -46,17 +43,14 @@ pub fn inactivity_watcher(
 pub type InputResult = Result<bool, Arc<io::Error>>;
 
 pub(crate) fn watcher(
-    new: Receiver<NewInput>,
+    just_connected: Receiver<NewInput>,
     to_block: Vec<InputFilter>,
-) -> color_eyre::Result<(
-    Receiver<Result<bool, Arc<io::Error>>>,
-    Receiver<Result<bool, Arc<io::Error>>>,
-)> {
+) -> color_eyre::Result<(Receiver<InputResult>, Receiver<InputResult>)> {
     let (tx1, rx1) = channel();
     let (tx2, rx2) = channel();
 
     thread::spawn(move || loop {
-        let input = new.recv().unwrap();
+        let input = just_connected.recv().unwrap();
         if !to_block
             .iter()
             .filter(|filter| filter.id == input.id)
@@ -68,38 +62,45 @@ pub(crate) fn watcher(
         let tx1 = tx1.clone();
         let tx2 = tx2.clone();
         thread::Builder::new()
-            .spawn(move || loop {
-                let mut file = match fs::File::open(&input.path) {
-                    // must be closed
-                    Err(e) if e.kind() == io::ErrorKind::NotFound => return,
-                    Err(e) => {
-                        // unexpected error, report to main thread
-                        let err = Arc::new(e); // make cloneable
-                        let _ig_err = tx1.send(Err(err.clone()));
-                        let _ig_err = tx2.send(Err(err));
-                        return;
-                    }
-                    Ok(file) => file,
-                };
-
-                match wait_for_input(&mut file) {
-                    // must be closed
-                    Err(e) if e.kind() == io::ErrorKind::NotFound => return,
-                    Err(e) => {
-                        // unexpected error, report to main thread
-                        let err = Arc::new(e); // make cloneable
-                        let _ig_err = tx1.send(Err(err.clone()));
-                        let _ig_err = tx2.send(Err(err));
-                        return;
-                    }
-                    Ok(_) => (),
-                };
-
-                let _ = tx1.send(Ok(true));
-                let _ = tx2.send(Ok(true));
-            })
+            .spawn(move || monitor_input(input, tx1, tx2))
             .unwrap();
     });
 
     Ok((rx1, rx2))
+}
+
+fn monitor_input(
+    input: NewInput,
+    tx1: Sender<Result<bool, Arc<io::Error>>>,
+    tx2: Sender<Result<bool, Arc<io::Error>>>,
+) {
+    let mut file = match fs::File::open(&input.path) {
+        // means the device is disconnected
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return,
+        Err(e) => {
+            // unexpected error, report to main thread
+            let err = Arc::new(e); // make cloneable
+            let _ig_err = tx1.send(Err(err.clone()));
+            let _ig_err = tx2.send(Err(err));
+            return;
+        }
+        Ok(file) => file,
+    };
+    loop {
+        match wait_for_input(&mut file) {
+            // means the device is disconnected
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return,
+            Err(e) => {
+                // unexpected error, report to main thread
+                let err = Arc::new(e); // make cloneable
+                let _ig_err = tx1.send(Err(err.clone()));
+                let _ig_err = tx2.send(Err(err));
+                return;
+            }
+            Ok(_) => (),
+        };
+
+        let _ = tx1.send(Ok(true));
+        let _ = tx2.send(Ok(true));
+    }
 }
