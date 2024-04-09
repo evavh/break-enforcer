@@ -1,7 +1,6 @@
 use core::fmt;
 use std::collections::HashMap;
 use std::io::ErrorKind;
-use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{mpsc, Arc, Mutex};
@@ -19,13 +18,6 @@ struct Device {
     raw_dev: evdev::Device,
 }
 
-/// need to modify Device (grap/ungrap) therefore can not use a Set
-/// instead we use a Map with a characteristic of the device as
-/// "Key"
-// File descriptor is unique within a process so a good key
-#[derive(Hash, PartialEq, Eq)]
-struct DeviceKey(std::os::fd::RawFd);
-
 fn device_name(device: &evdev::Device) -> String {
     device
         .name()
@@ -40,10 +32,6 @@ fn device_name(device: &evdev::Device) -> String {
 impl Device {
     fn name(&self) -> String {
         device_name(&self.raw_dev)
-    }
-
-    fn key(&self) -> DeviceKey {
-        DeviceKey(self.raw_dev.as_raw_fd())
     }
 }
 
@@ -93,7 +81,7 @@ pub struct OnlineDevices {
 
 impl OnlineDevices {
     lock_and_call_inner!(pub list_inputs,; Vec<BlockableInput>);
-    lock_and_call_inner!(insert, raw_dev: evdev::Device; bool);
+    lock_and_call_inner!(insert, raw_dev: evdev::Device, event_path: PathBuf; bool);
     lock_and_call_inner!(lock_all_matching, id: InputFilter; Result<()>);
     lock_and_call_inner!(unlock_all_matching, id: InputFilter; Result<()>);
 
@@ -162,19 +150,24 @@ struct Inner {
     // multiple devices with the same id could have different
     // names due to manufacturer mistake
     // device serial could be duplicate due to manufacturer mistake
-    id_to_devices: HashMap<InputId, HashMap<DeviceKey, Device>>,
+    id_to_devices: HashMap<InputId, HashMap<PathBuf, Device>>,
 }
 
 impl Inner {
     /// if it was already present ignore
-    fn insert(&mut self, raw_dev: evdev::Device) -> bool {
+    fn insert(&mut self, raw_dev: evdev::Device, event_path: PathBuf) -> bool {
         let id = raw_dev.input_id().into();
         let device = Device { raw_dev };
         if let Some(in_map) = self.id_to_devices.get_mut(&id) {
-            in_map.insert(device.key(), device).is_some()
+            let existing = in_map.insert(event_path, device);
+            let is_new = existing.is_none();
+            if is_new {
+                dbg!();
+            }
+            is_new
         } else {
             self.id_to_devices
-                .insert(id, HashMap::from([(device.key(), device)]));
+                .insert(id, HashMap::from([(event_path, device)]));
             true
         }
     }
@@ -237,7 +230,7 @@ pub struct BlockableInput {
     pub names: Vec<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct NewInput {
     pub id: InputId,
     pub name: String,
@@ -286,7 +279,7 @@ fn scan_and_process_new(online: &OnlineDevices, new_dev_tx: &mpsc::Sender<NewInp
     for (event_path, device) in evdev::enumerate() {
         let id = InputId::from(device.input_id());
         let name = device_name(&device);
-        let new = online.insert(device);
+        let new = online.insert(device, event_path.clone());
         if new {
             new_dev_tx
                 .send(NewInput {

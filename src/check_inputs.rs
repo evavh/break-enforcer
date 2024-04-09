@@ -50,19 +50,20 @@ pub(crate) fn watcher(
     let (tx2, rx2) = channel();
 
     thread::spawn(move || loop {
-        let input = just_connected.recv().unwrap();
+        let new_device = just_connected.recv().unwrap();
         if !to_block
             .iter()
-            .filter(|filter| filter.id == input.id)
-            .any(|filter| filter.names.contains(&input.name))
+            .filter(|filter| filter.id == new_device.id)
+            .any(|filter| filter.names.contains(&new_device.name))
         {
             continue;
         }
 
+        dbg!(&new_device);
         let tx1 = tx1.clone();
         let tx2 = tx2.clone();
         thread::Builder::new()
-            .spawn(move || monitor_input(input, tx1, tx2))
+            .spawn(move || monitor_input(new_device, tx1, tx2))
             .unwrap();
     });
 
