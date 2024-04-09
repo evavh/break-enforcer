@@ -1,7 +1,6 @@
 use core::fmt;
 use std::collections::HashMap;
 use std::io::ErrorKind;
-use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{mpsc, Arc, Mutex};
@@ -19,31 +18,20 @@ struct Device {
     raw_dev: evdev::Device,
 }
 
-/// need to modify Device (grap/ungrap) therefore can not use a Set
-/// instead we use a Map with a characteristic of the device as
-/// "Key"
-// File descriptor is unique within a process so a good key
-#[derive(Hash, PartialEq, Eq)]
-struct DeviceKey(std::os::fd::RawFd);
-
 fn device_name(device: &evdev::Device) -> String {
+    let default = || {
+        let id = InputId::from(device.input_id());
+        format!("Unknown device, id: {id}")
+    };
     device
         .name()
         .or(device.unique_name())
-        .map(String::from)
-        .unwrap_or_else(|| {
-            let id = InputId::from(device.input_id());
-            format!("Unknown device, id: {}", id)
-        })
+        .map_or_else(default, String::from)
 }
 
 impl Device {
     fn name(&self) -> String {
         device_name(&self.raw_dev)
-    }
-
-    fn key(&self) -> DeviceKey {
-        DeviceKey(self.raw_dev.as_raw_fd())
     }
 }
 
@@ -93,9 +81,9 @@ pub struct OnlineDevices {
 
 impl OnlineDevices {
     lock_and_call_inner!(pub list_inputs,; Vec<BlockableInput>);
-    lock_and_call_inner!(insert, raw_dev: evdev::Device; bool);
-    lock_and_call_inner!(lock_all_matching, id: InputFilter; Result<()>);
-    lock_and_call_inner!(unlock_all_matching, id: InputFilter; Result<()>);
+    lock_and_call_inner!(insert, raw_dev: evdev::Device, event_path: PathBuf; bool);
+    lock_and_call_inner!(lock_all_matching, id: &InputFilter; Result<()>);
+    lock_and_call_inner!(unlock_all_matching, id: &InputFilter; Result<()>);
 
     /// will also ensure that if the device is connected before
     /// the lockguard is dropped that it is locked
@@ -154,7 +142,7 @@ impl Drop for LockGuard {
         eprintln!(
             "Should not drop LockGuard but instead destroy by calling unlock
             since drop can not return an error"
-        )
+        );
     }
 }
 
@@ -162,19 +150,24 @@ struct Inner {
     // multiple devices with the same id could have different
     // names due to manufacturer mistake
     // device serial could be duplicate due to manufacturer mistake
-    id_to_devices: HashMap<InputId, HashMap<DeviceKey, Device>>,
+    id_to_devices: HashMap<InputId, HashMap<PathBuf, Device>>,
 }
 
 impl Inner {
     /// if it was already present ignore
-    fn insert(&mut self, raw_dev: evdev::Device) -> bool {
+    fn insert(&mut self, raw_dev: evdev::Device, event_path: PathBuf) -> bool {
         let id = raw_dev.input_id().into();
         let device = Device { raw_dev };
         if let Some(in_map) = self.id_to_devices.get_mut(&id) {
-            in_map.insert(device.key(), device).is_some()
+            let existing = in_map.insert(event_path, device);
+            let is_new = existing.is_none();
+            if is_new {
+                dbg!();
+            }
+            is_new
         } else {
             self.id_to_devices
-                .insert(id, HashMap::from([(device.key(), device)]));
+                .insert(id, HashMap::from([(event_path, device)]));
             true
         }
     }
@@ -190,7 +183,7 @@ impl Inner {
             .collect()
     }
 
-    fn unlock_all_matching(&mut self, filter: InputFilter) -> Result<()> {
+    fn unlock_all_matching(&mut self, filter: &InputFilter) -> Result<()> {
         let Some(to_lock) = self.id_to_devices.get_mut(&filter.id) else {
             return Ok(());
         };
@@ -208,7 +201,7 @@ impl Inner {
         Ok(())
     }
 
-    fn lock_all_matching(&mut self, filter: InputFilter) -> Result<()> {
+    fn lock_all_matching(&mut self, filter: &InputFilter) -> Result<()> {
         let Some(to_lock) = self.id_to_devices.get_mut(&filter.id) else {
             return Ok(());
         };
@@ -218,7 +211,7 @@ impl Inner {
             .filter(|device| filter.names.contains(&device.name()))
         {
             match device.raw_dev.grab() {
-                Ok(_) => (),
+                Ok(()) => (),
                 Err(e) if e.kind() == ErrorKind::ResourceBusy => (),
                 err @ Err(_) => {
                     return err
@@ -237,7 +230,7 @@ pub struct BlockableInput {
     pub names: Vec<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct NewInput {
     pub id: InputId,
     pub name: String,
@@ -266,11 +259,11 @@ pub fn devices() -> (OnlineDevices, Receiver<NewInput>) {
             scan_and_process_new(&online, &new_dev_tx);
             match order_rx.recv_timeout(Duration::from_secs(5)) {
                 Ok(Order::Lock(filter, answer)) => {
-                    let res = online.lock_all_matching(filter);
+                    let res = online.lock_all_matching(&filter);
                     answer.send(res).expect("lock fn does not panic");
                 }
                 Ok(Order::UnLock(filter, answer)) => {
-                    let res = online.unlock_all_matching(filter);
+                    let res = online.unlock_all_matching(&filter);
                     answer.send(res).expect("unlock fn does not panic");
                 }
                 Err(RecvTimeoutError::Timeout) => continue,
@@ -286,7 +279,7 @@ fn scan_and_process_new(online: &OnlineDevices, new_dev_tx: &mpsc::Sender<NewInp
     for (event_path, device) in evdev::enumerate() {
         let id = InputId::from(device.input_id());
         let name = device_name(&device);
-        let new = online.insert(device);
+        let new = online.insert(device, event_path.clone());
         if new {
             new_dev_tx
                 .send(NewInput {
