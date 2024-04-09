@@ -17,4 +17,4 @@ serde = { version = "1.0.197", features = ["derive"] }
 sudo = "0.6.0"
 thiserror = "1.0.58"
 
-service-install = { version = "0.1", git = "https://github.com/dvdsk/service-install" }
+service-install = { version = "0.3" }

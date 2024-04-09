@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use color_eyre::eyre::{Result, WrapErr};
-use service_install::Install;
+use color_eyre::eyre::{eyre, Context, Result};
+use service_install::{install_system, tui};
 
 use crate::cli::RunArgs;
+use crate::config;
 
 fn fmt_dur(dur: Duration) -> String {
     let ss = dur.as_secs() % 60;
@@ -21,6 +22,15 @@ fn fmt_dur(dur: Duration) -> String {
 }
 
 pub fn set_up(run_args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
+    let to_block = config::read(config_path.clone())
+        .wrap_err("Could not read devices to block from config")
+        .wrap_err("Could not verify the config file is not empty")?;
+    if to_block.is_empty() {
+        return Err(eyre!(
+            "No devices set up. The service would do nothing. Please run the wizard"
+        ));
+    }
+
     let mut args = Vec::new();
     if let Some(config_path) = config_path {
         args.push(format!("--config-path"));
@@ -34,21 +44,27 @@ pub fn set_up(run_args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     args.push(format!("--grace_duration"));
     args.push(fmt_dur(run_args.grace_duration));
 
-    Install::system()
+    let steps = install_system!()
         .current_exe()?
         .on_boot()
         .name(env!("CARGO_CRATE_NAME"))
         .description("Disables input during breaks")
         .args(args)
-        .install()
-        .wrap_err("Could not set up installation")
+        .prepare_install()
+        .wrap_err("Could not set up installation")?;
+
+    tui::install::start(steps).wrap_err("Failed to run install wizard")?;
+    Ok(())
 }
 
 pub fn tear_down() -> Result<()> {
-    Install::system()
+    let steps = install_system!()
         .name(env!("CARGO_CRATE_NAME"))
-        .remove()
-        .wrap_err("Could not remove installation")
+        .prepare_remove()
+        .wrap_err("Could not remove installation")?;
+
+    tui::removal::start(steps).wrap_err("Failed to run removal wizard")?;
+    Ok(())
 }
 
 #[test]
