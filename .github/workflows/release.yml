@@ -65,10 +65,9 @@ jobs:
     - name: find tag
       id: tag
       run: |
-          VERSION=$(grep '^version =' main/Cargo.toml | head -n 1 | awk '{print $3}' | tr -d '"' | tr -d "\n")
+          VERSION=$(grep '^version =' Cargo.toml | head -n 1 | awk '{print $3}' | tr -d '"' | tr -d "\n")
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "Found version: $VERSION"
-          echo "::set-output name=version::$VERSION"
     - name: rename bins
       run: |
         suffix=`echo ${{ matrix.target }} | cut -d "-" -f 1`
@@ -82,5 +81,5 @@ jobs:
         prerelease: false
         name: Release ${{ env.VERSION }}
         files: |
-          break-enforcer-s*
+          break-enforcer-s_*
         tag_name: ${{ env.VERSION }}
