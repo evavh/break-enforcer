@@ -71,7 +71,7 @@ jobs:
     - name: rename bins
       run: |
         suffix=`echo ${{ matrix.target }} | cut -d "-" -f 1`
-        mv ${{ matrix.target }}/break-enforcer-s break-enforcer-s$suffix
+        mv ${{ matrix.target }}/break-enforcer-s break-enforcer-s_$suffix
     - name: changelog as release body
       run: cat CHANGELOG.md | awk '/^## /{if (++c == 2) {exit}} c == 1' | tail -n +2 > ${{ github.workspace }}-CHANGELOG.txt
     - name: Release
