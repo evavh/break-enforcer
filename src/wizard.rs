@@ -21,7 +21,7 @@ pub fn run(devices: &OnlineDevices, custom_config_path: Option<PathBuf>) -> Resu
 
     let mut inputs = devices.list_inputs();
     for BlockableInput { names, .. } in &mut inputs {
-        names.sort()
+        names.sort();
     }
     let mut inputs: Vec<_> = inputs
         .into_iter()
@@ -34,8 +34,7 @@ pub fn run(devices: &OnlineDevices, custom_config_path: Option<PathBuf>) -> Resu
         .map(|(id, name)| {
             let checked = config
                 .get(id)
-                .map(|names| names.contains(name))
-                .unwrap_or(false);
+                .is_some_and(|names| names.contains(name));
             (name, checked)
         })
         .collect();
@@ -60,7 +59,7 @@ pub fn run(devices: &OnlineDevices, custom_config_path: Option<PathBuf>) -> Resu
                 option.1 = false;
             }
             for idx in &selection {
-                options[*idx].1 = true
+                options[*idx].1 = true;
             }
 
             let locked: Vec<_> = selection
@@ -79,7 +78,7 @@ pub fn run(devices: &OnlineDevices, custom_config_path: Option<PathBuf>) -> Resu
             thread::sleep(Duration::from_secs(8));
             println!("\n\nUnlocking, Stop typing!");
             for lock in locked {
-                lock.unlock()?
+                lock.unlock()?;
             }
         }
         thread::sleep(Duration::from_secs(2));
