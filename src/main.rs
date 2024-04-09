@@ -68,8 +68,7 @@ fn main() -> color_eyre::Result<()> {
         .suggestion("Run the wizard")
         .suggestion("Maybe you have a (wrong) custom location set?");
     }
-    let (recv_any_input, recv_any_input2) = check_inputs::watcher(new, to_block.clone())
-        .wrap_err("Could not start watching to be locked devices for activaty")?;
+    let (recv_any_input, recv_any_input2) = check_inputs::watcher(new, to_block.clone());
 
     let (break_skip_sender, break_skip_receiver) = channel();
     let (work_start_sender, work_start_receiver) = channel();
@@ -122,7 +121,7 @@ fn main() -> color_eyre::Result<()> {
         thread::sleep(work_duration);
 
         for lock in locks {
-            lock.unlock()?
+            lock.unlock()?;
         }
     }
 }
@@ -136,9 +135,10 @@ fn block_on_new_input(recv_any_input: &Receiver<InputResult>) -> color_eyre::Res
         }
     }
 
+    #[allow(clippy::match_same_arms)]
     match recv_any_input.recv() {
-        Err(_) => return Ok(()), // device disconnected
-        Ok(Err(e)) => return Err(e).wrap_err("Error with device file"),
-        Ok(Ok(_)) => return Ok(()), // new event! stop blocking
+        Err(_) => Ok(()), // device disconnected
+        Ok(Err(e)) => Err(e).wrap_err("Error with device file"),
+        Ok(Ok(_)) => Ok(()), // new event! stop blocking
     }
 }

@@ -19,14 +19,14 @@ struct Device {
 }
 
 fn device_name(device: &evdev::Device) -> String {
+    let default = || {
+        let id = InputId::from(device.input_id());
+        format!("Unknown device, id: {id}")
+    };
     device
         .name()
         .or(device.unique_name())
-        .map(String::from)
-        .unwrap_or_else(|| {
-            let id = InputId::from(device.input_id());
-            format!("Unknown device, id: {}", id)
-        })
+        .map_or_else(default, String::from)
 }
 
 impl Device {
@@ -82,8 +82,8 @@ pub struct OnlineDevices {
 impl OnlineDevices {
     lock_and_call_inner!(pub list_inputs,; Vec<BlockableInput>);
     lock_and_call_inner!(insert, raw_dev: evdev::Device, event_path: PathBuf; bool);
-    lock_and_call_inner!(lock_all_matching, id: InputFilter; Result<()>);
-    lock_and_call_inner!(unlock_all_matching, id: InputFilter; Result<()>);
+    lock_and_call_inner!(lock_all_matching, id: &InputFilter; Result<()>);
+    lock_and_call_inner!(unlock_all_matching, id: &InputFilter; Result<()>);
 
     /// will also ensure that if the device is connected before
     /// the lockguard is dropped that it is locked
@@ -142,7 +142,7 @@ impl Drop for LockGuard {
         eprintln!(
             "Should not drop LockGuard but instead destroy by calling unlock
             since drop can not return an error"
-        )
+        );
     }
 }
 
@@ -183,7 +183,7 @@ impl Inner {
             .collect()
     }
 
-    fn unlock_all_matching(&mut self, filter: InputFilter) -> Result<()> {
+    fn unlock_all_matching(&mut self, filter: &InputFilter) -> Result<()> {
         let Some(to_lock) = self.id_to_devices.get_mut(&filter.id) else {
             return Ok(());
         };
@@ -201,7 +201,7 @@ impl Inner {
         Ok(())
     }
 
-    fn lock_all_matching(&mut self, filter: InputFilter) -> Result<()> {
+    fn lock_all_matching(&mut self, filter: &InputFilter) -> Result<()> {
         let Some(to_lock) = self.id_to_devices.get_mut(&filter.id) else {
             return Ok(());
         };
@@ -211,7 +211,7 @@ impl Inner {
             .filter(|device| filter.names.contains(&device.name()))
         {
             match device.raw_dev.grab() {
-                Ok(_) => (),
+                Ok(()) => (),
                 Err(e) if e.kind() == ErrorKind::ResourceBusy => (),
                 err @ Err(_) => {
                     return err
@@ -259,11 +259,11 @@ pub fn devices() -> (OnlineDevices, Receiver<NewInput>) {
             scan_and_process_new(&online, &new_dev_tx);
             match order_rx.recv_timeout(Duration::from_secs(5)) {
                 Ok(Order::Lock(filter, answer)) => {
-                    let res = online.lock_all_matching(filter);
+                    let res = online.lock_all_matching(&filter);
                     answer.send(res).expect("lock fn does not panic");
                 }
                 Ok(Order::UnLock(filter, answer)) => {
-                    let res = online.unlock_all_matching(filter);
+                    let res = online.unlock_all_matching(&filter);
                     answer.send(res).expect("unlock fn does not panic");
                 }
                 Err(RecvTimeoutError::Timeout) => continue,
