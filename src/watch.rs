@@ -112,7 +112,6 @@ enum Event {
     LockRequested(InputFilter, mpsc::Sender<Result<()>>),
     UnLockRequested(InputFilter, mpsc::Sender<Result<()>>),
     DevError(color_eyre::Result<()>),
-    DevRemove(PathBuf),
     DevAdded(PathBuf),
 }
 
@@ -165,11 +164,12 @@ struct Inner {
 
 impl Inner {
     fn check_status(&mut self) -> Result<()> {
-        if self.status.is_err() { // little dance to get ownership of the error
+        if self.status.is_err() {
+            // little dance to get ownership of the error
             let mut to_return = Ok(());
             std::mem::swap(&mut to_return, &mut self.status);
             // self.error is now Ok(())
-            return to_return
+            to_return
         } else {
             Ok(())
         }
@@ -282,7 +282,7 @@ pub fn devices() -> (OnlineDevices, Receiver<NewInput>) {
     let (new_dev_tx, new_dev_rx) = mpsc::channel();
     send_initial_devices(&mut online, &new_dev_tx);
     thread::spawn(move || {
-        send_new_devices(order_tx);
+        send_new_devices(&order_tx);
     });
 
     let mut online2 = online.clone();
@@ -297,9 +297,6 @@ pub fn devices() -> (OnlineDevices, Receiver<NewInput>) {
                 answer.send(res).expect("unlock fn does not panic");
             }
             Ok(Event::DevAdded(event_path)) => add_device(&mut online2, &new_dev_tx, event_path),
-            Ok(Event::DevRemove(event_path)) => {
-                remove_device(&mut online2, &new_dev_tx, event_path)
-            }
             Ok(Event::DevError(error)) => {
                 // next time online devices is queried it will report this error
                 online2.inner.lock().unwrap().status = error;
@@ -313,14 +310,14 @@ pub fn devices() -> (OnlineDevices, Receiver<NewInput>) {
     (online, new_dev_rx)
 }
 
-const DEV_DIR: &'static str = "/dev/input";
+const DEV_DIR: &str = "/dev/input";
 fn send_initial_devices(online: &mut OnlineDevices, new_dev_tx: &Sender<NewInput>) {
     for entry in fs::read_dir(DEV_DIR).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
         let fname = path.file_name().unwrap();
         if fname.as_bytes().starts_with(b"event") {
-            add_device(online, new_dev_tx, path)
+            add_device(online, new_dev_tx, path);
         }
     }
 }
@@ -341,22 +338,11 @@ fn add_device(online: &mut OnlineDevices, new_dev_tx: &Sender<NewInput>, event_p
     }
 }
 
-fn remove_device(
-    _online: &mut OnlineDevices,
-    _new_dev_tx: &Sender<NewInput>,
-    _event_path: PathBuf,
-) {
-    eprintln!("device was removed (unused for now)");
-}
-
-fn send_new_devices(tx: Sender<Event>) {
+fn send_new_devices(tx: &Sender<Event>) {
     let mut inotify = Inotify::init().unwrap();
     let mut buffer = [0; 1024];
 
-    inotify
-        .watches()
-        .add(DEV_DIR, WatchMask::CREATE | WatchMask::DELETE)
-        .unwrap();
+    inotify.watches().add(DEV_DIR, WatchMask::CREATE).unwrap();
 
     let events = match inotify.read_events_blocking(&mut buffer) {
         Err(err) => {
@@ -374,9 +360,6 @@ fn send_new_devices(tx: Sender<Event>) {
         let path = PathBuf::from_str(DEV_DIR).unwrap().join(file_name);
         if event.mask.contains(EventMask::CREATE) {
             tx.send(Event::DevAdded(path.clone())).unwrap();
-        }
-        if event.mask.contains(EventMask::DELETE) {
-            tx.send(Event::DevRemove(path)).unwrap();
         }
     }
 }
