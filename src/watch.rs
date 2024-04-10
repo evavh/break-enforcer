@@ -1,17 +1,21 @@
 use core::fmt;
 use std::collections::HashMap;
 use std::io::ErrorKind;
+use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::str::FromStr;
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::{mpsc, Arc, Mutex};
-use std::thread;
 use std::time::Duration;
+use std::{fs, thread};
 
 use base64::{engine::general_purpose, Engine as _};
 use color_eyre::eyre::Context;
 use color_eyre::{Result, Section};
+use inotify::{EventMask, Inotify, WatchMask};
 use serde::{Deserialize, Serialize};
 
+use crate::check_inputs::device_removed;
 use crate::config::InputFilter;
 
 struct Device {
@@ -75,12 +79,12 @@ macro_rules! lock_and_call_inner {
 
 #[derive(Clone)]
 pub struct OnlineDevices {
-    tx: mpsc::Sender<Order>,
+    tx: mpsc::Sender<Event>,
     inner: Arc<Mutex<Inner>>,
 }
 
 impl OnlineDevices {
-    lock_and_call_inner!(pub list_inputs,; Vec<BlockableInput>);
+    lock_and_call_inner!(pub list_inputs,; Result<Vec<BlockableInput>>);
     lock_and_call_inner!(insert, raw_dev: evdev::Device, event_path: PathBuf; bool);
     lock_and_call_inner!(lock_all_matching, id: &InputFilter; Result<()>);
     lock_and_call_inner!(unlock_all_matching, id: &InputFilter; Result<()>);
@@ -90,7 +94,7 @@ impl OnlineDevices {
     pub(crate) fn lock(&self, input: InputFilter) -> Result<LockGuard> {
         let (tx, rx) = std::sync::mpsc::channel();
         self.tx
-            .send(Order::Lock(input.clone(), tx))
+            .send(Event::LockRequested(input.clone(), tx))
             .expect("devices should never end/panic");
 
         let lock_res = rx.recv().expect("devices should never end/panic");
@@ -104,16 +108,19 @@ impl OnlineDevices {
     }
 }
 
-enum Order {
-    Lock(InputFilter, mpsc::Sender<Result<()>>),
-    UnLock(InputFilter, mpsc::Sender<Result<()>>),
+enum Event {
+    LockRequested(InputFilter, mpsc::Sender<Result<()>>),
+    UnLockRequested(InputFilter, mpsc::Sender<Result<()>>),
+    DevError(color_eyre::Result<()>),
+    DevRemove(PathBuf),
+    DevAdded(PathBuf),
 }
 
 /// use `unlock` to re-enable the disabled input device
 #[must_use]
 pub struct LockGuard {
     filter: InputFilter,
-    tx: mpsc::Sender<Order>,
+    tx: mpsc::Sender<Event>,
     // skip backup unlock if user did things right
     dropped: bool,
 }
@@ -122,7 +129,7 @@ impl LockGuard {
     pub(crate) fn unlock(mut self) -> Result<()> {
         let (tx, rx) = std::sync::mpsc::channel();
         self.tx
-            .send(Order::UnLock(self.filter.clone(), tx))
+            .send(Event::UnLockRequested(self.filter.clone(), tx))
             .expect("devices should never end/panic");
 
         rx.recv().expect("devices should never end/panic")?;
@@ -138,7 +145,9 @@ impl Drop for LockGuard {
             return; // nothing to do
         }
         let (tx, _) = std::sync::mpsc::channel();
-        let _do_not_panic_in_drop = self.tx.send(Order::UnLock(self.filter.clone(), tx));
+        let _do_not_panic_in_drop = self
+            .tx
+            .send(Event::UnLockRequested(self.filter.clone(), tx));
         eprintln!(
             "Should not drop LockGuard but instead destroy by calling unlock
             since drop can not return an error"
@@ -151,9 +160,21 @@ struct Inner {
     // names due to manufacturer mistake
     // device serial could be duplicate due to manufacturer mistake
     id_to_devices: HashMap<InputId, HashMap<PathBuf, Device>>,
+    status: Result<()>,
 }
 
 impl Inner {
+    fn check_status(&mut self) -> Result<()> {
+        if self.status.is_err() { // little dance to get ownership of the error
+            let mut to_return = Ok(());
+            std::mem::swap(&mut to_return, &mut self.status);
+            // self.error is now Ok(())
+            return to_return
+        } else {
+            Ok(())
+        }
+    }
+
     /// if it was already present ignore
     fn insert(&mut self, raw_dev: evdev::Device, event_path: PathBuf) -> bool {
         let id = raw_dev.input_id().into();
@@ -168,18 +189,22 @@ impl Inner {
         }
     }
 
-    fn list_inputs(&mut self) -> Vec<BlockableInput> {
-        self.id_to_devices
+    fn list_inputs(&mut self) -> Result<Vec<BlockableInput>> {
+        self.check_status()?;
+
+        Ok(self
+            .id_to_devices
             .iter()
             .map(|(id, devices)| {
                 let mut names: Vec<_> = devices.values().map(Device::name).collect();
                 names.sort();
                 BlockableInput { id: *id, names }
             })
-            .collect()
+            .collect())
     }
 
     fn unlock_all_matching(&mut self, filter: &InputFilter) -> Result<()> {
+        self.check_status()?;
         let Some(to_lock) = self.id_to_devices.get_mut(&filter.id) else {
             return Ok(());
         };
@@ -188,16 +213,21 @@ impl Inner {
             .values_mut()
             .filter(|device| filter.names.contains(&device.name()))
         {
-            device
-                .raw_dev
-                .ungrab()
-                .wrap_err("Could not ungrab (release exclusive access) to device")
-                .with_note(|| format!("device name: {}", device.name()))?;
+            match device.raw_dev.ungrab() {
+                Ok(()) => (),
+                Err(e) if device_removed(&e) => (),
+                err @ Err(_) => {
+                    return err
+                        .wrap_err("Could not ungrab (release exclusive access) to device")
+                        .with_note(|| format!("device name: {}", device.name()));
+                }
+            }
         }
         Ok(())
     }
 
     fn lock_all_matching(&mut self, filter: &InputFilter) -> Result<()> {
+        self.check_status()?;
         let Some(to_lock) = self.id_to_devices.get_mut(&filter.id) else {
             return Ok(());
         };
@@ -209,6 +239,7 @@ impl Inner {
             match device.raw_dev.grab() {
                 Ok(()) => (),
                 Err(e) if e.kind() == ErrorKind::ResourceBusy => (),
+                Err(e) if device_removed(&e) => (),
                 err @ Err(_) => {
                     return err
                         .wrap_err("Could not grab (acquire exclusive access) to device")
@@ -240,50 +271,112 @@ pub struct NewInput {
  * <15-03-24, dvdsk> */
 pub fn devices() -> (OnlineDevices, Receiver<NewInput>) {
     let (order_tx, order_rx) = mpsc::channel();
-    let online = OnlineDevices {
-        tx: order_tx,
+    let mut online = OnlineDevices {
+        tx: order_tx.clone(),
         inner: Arc::new(Mutex::new(Inner {
+            status: Ok(()),
             id_to_devices: HashMap::new(),
         })),
     };
 
     let (new_dev_tx, new_dev_rx) = mpsc::channel();
-    scan_and_process_new(&online, &new_dev_tx);
-    {
-        let online = online.clone();
-        thread::spawn(move || loop {
-            scan_and_process_new(&online, &new_dev_tx);
-            match order_rx.recv_timeout(Duration::from_secs(5)) {
-                Ok(Order::Lock(filter, answer)) => {
-                    let res = online.lock_all_matching(&filter);
-                    answer.send(res).expect("lock fn does not panic");
-                }
-                Ok(Order::UnLock(filter, answer)) => {
-                    let res = online.unlock_all_matching(&filter);
-                    answer.send(res).expect("unlock fn does not panic");
-                }
-                Err(RecvTimeoutError::Timeout) => continue,
-                Err(RecvTimeoutError::Disconnected) => return,
+    send_initial_devices(&mut online, &new_dev_tx);
+    thread::spawn(move || {
+        send_new_devices(order_tx);
+    });
+
+    let mut online2 = online.clone();
+    thread::spawn(move || loop {
+        match order_rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(Event::LockRequested(filter, answer)) => {
+                let res = online2.lock_all_matching(&filter);
+                answer.send(res).expect("lock fn does not panic");
             }
-        });
-    }
+            Ok(Event::UnLockRequested(filter, answer)) => {
+                let res = online2.unlock_all_matching(&filter);
+                answer.send(res).expect("unlock fn does not panic");
+            }
+            Ok(Event::DevAdded(event_path)) => add_device(&mut online2, &new_dev_tx, event_path),
+            Ok(Event::DevRemove(event_path)) => {
+                remove_device(&mut online2, &new_dev_tx, event_path)
+            }
+            Ok(Event::DevError(error)) => {
+                // next time online devices is queried it will report this error
+                online2.inner.lock().unwrap().status = error;
+            }
+
+            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Disconnected) => return,
+        }
+    });
 
     (online, new_dev_rx)
 }
 
-fn scan_and_process_new(online: &OnlineDevices, new_dev_tx: &mpsc::Sender<NewInput>) {
-    for (event_path, device) in evdev::enumerate() {
-        let id = InputId::from(device.input_id());
-        let name = device_name(&device);
-        let new = online.insert(device, event_path.clone());
-        if new {
-            new_dev_tx
-                .send(NewInput {
-                    id,
-                    name,
-                    path: event_path,
-                })
-                .expect("watcher should never end and drop rx");
+const DEV_DIR: &'static str = "/dev/input";
+fn send_initial_devices(online: &mut OnlineDevices, new_dev_tx: &Sender<NewInput>) {
+    for entry in fs::read_dir(DEV_DIR).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        let fname = path.file_name().unwrap();
+        if fname.as_bytes().starts_with(b"event") {
+            add_device(online, new_dev_tx, path)
+        }
+    }
+}
+
+fn add_device(online: &mut OnlineDevices, new_dev_tx: &Sender<NewInput>, event_path: PathBuf) {
+    let device = evdev::Device::open(&event_path).unwrap();
+    let id = InputId::from(device.input_id());
+    let name = device_name(&device);
+    let new = online.insert(device, event_path.clone());
+    if new {
+        new_dev_tx
+            .send(NewInput {
+                id,
+                name,
+                path: event_path,
+            })
+            .expect("watcher should never end and drop rx");
+    }
+}
+
+fn remove_device(
+    _online: &mut OnlineDevices,
+    _new_dev_tx: &Sender<NewInput>,
+    _event_path: PathBuf,
+) {
+    eprintln!("device was removed (unused for now)");
+}
+
+fn send_new_devices(tx: Sender<Event>) {
+    let mut inotify = Inotify::init().unwrap();
+    let mut buffer = [0; 1024];
+
+    inotify
+        .watches()
+        .add(DEV_DIR, WatchMask::CREATE | WatchMask::DELETE)
+        .unwrap();
+
+    let events = match inotify.read_events_blocking(&mut buffer) {
+        Err(err) => {
+            let res = Err(err).wrap_err("inotify could not read events");
+            tx.send(Event::DevError(res)).unwrap();
+            return;
+        }
+        Ok(events) => events,
+    };
+
+    for event in events {
+        let Some(file_name) = event.name else {
+            continue;
+        };
+        let path = PathBuf::from_str(DEV_DIR).unwrap().join(file_name);
+        if event.mask.contains(EventMask::CREATE) {
+            tx.send(Event::DevAdded(path.clone())).unwrap();
+        }
+        if event.mask.contains(EventMask::DELETE) {
+            tx.send(Event::DevRemove(path)).unwrap();
         }
     }
 }
