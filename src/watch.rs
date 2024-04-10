@@ -160,8 +160,7 @@ impl Inner {
         let device = Device { raw_dev };
         if let Some(in_map) = self.id_to_devices.get_mut(&id) {
             let existing = in_map.insert(event_path, device);
-            let is_new = existing.is_none();
-            is_new
+            existing.is_none() // is_new
         } else {
             self.id_to_devices
                 .insert(id, HashMap::from([(event_path, device)]));
