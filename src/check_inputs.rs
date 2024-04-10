@@ -81,6 +81,7 @@ fn monitor_input(
         Err(e) if e.kind() == io::ErrorKind::NotFound => return,
         Err(e) => {
             // unexpected error, report to main thread
+            dbg!(&e);
             let err = Arc::new(e); // make cloneable
             let _ig_err = tx1.send(Err(err.clone()));
             let _ig_err = tx2.send(Err(err));
@@ -91,7 +92,14 @@ fn monitor_input(
     loop {
         match wait_for_input(&mut file) {
             // means the device is disconnected
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                // device was disconnected
+                break;
+            }
+            Err(e) if device_removed(&e) => {
+                // device was disconnected
+                break;
+            }
             Err(e) => {
                 // unexpected error, report to main thread
                 let err = Arc::new(e); // make cloneable
@@ -105,4 +113,8 @@ fn monitor_input(
         let _ = tx1.send(Ok(true));
         let _ = tx2.send(Ok(true));
     }
+}
+
+pub fn device_removed(e: &std::io::Error) -> bool {
+    e.raw_os_error() == Some(19i32) && e.to_string().contains("No such device")
 }
