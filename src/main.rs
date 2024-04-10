@@ -99,7 +99,7 @@ fn main() -> color_eyre::Result<()> {
         block_on_new_input(&recv_any_input).wrap_err("Could not block till new input")?;
         notify_all_users(&format!("Starting work timer for {work_duration:?}"));
         work_start_sender.send(true).unwrap();
-        match break_skip_receiver.recv_timeout(break_duration - grace_duration) {
+        match break_skip_receiver.recv_timeout(work_duration - grace_duration) {
             Ok(_) => {
                 notify_all_users("No input for breaktime");
                 block_on_new_input(&recv_any_input).wrap_err("Could not block till new input")?;
@@ -123,8 +123,8 @@ fn main() -> color_eyre::Result<()> {
             );
         }
 
-        notify_all_users(&format!("Starting break timer for {work_duration:?}"));
-        thread::sleep(work_duration);
+        notify_all_users(&format!("Starting break timer for {break_duration:?}"));
+        thread::sleep(break_duration);
 
         for lock in locks {
             lock.unlock()?;
