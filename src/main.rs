@@ -117,8 +117,8 @@ fn main() -> color_eyre::Result<()> {
             );
         }
 
-        notify_all_users(&format!("Starting break timer for {work_duration:?}"));
-        thread::sleep(work_duration);
+        notify_all_users(&format!("Starting break timer for {break_duration:?}"));
+        thread::sleep(break_duration);
 
         for lock in locks {
             lock.unlock()?;
