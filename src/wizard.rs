@@ -19,7 +19,7 @@ pub fn run(devices: &OnlineDevices, custom_config_path: Option<PathBuf>) -> Resu
         .map(|InputFilter { id, names }| (id, names))
         .collect();
 
-    let mut inputs = devices.list_inputs();
+    let mut inputs = devices.list_inputs().wrap_err("Could not list inputs")?;
     for BlockableInput { names, .. } in &mut inputs {
         names.sort();
     }
@@ -32,9 +32,7 @@ pub fn run(devices: &OnlineDevices, custom_config_path: Option<PathBuf>) -> Resu
     let mut options: Vec<_> = inputs
         .iter()
         .map(|(id, name)| {
-            let checked = config
-                .get(id)
-                .is_some_and(|names| names.contains(name));
+            let checked = config.get(id).is_some_and(|names| names.contains(name));
             (name, checked)
         })
         .collect();
