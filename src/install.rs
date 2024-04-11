@@ -2,6 +2,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use color_eyre::eyre::{eyre, Context, Result};
+use service_install::install::files::MoveError;
+use service_install::install::PrepareInstallError;
 use service_install::{install_system, tui};
 
 use crate::cli::RunArgs;
@@ -50,6 +52,7 @@ pub fn set_up(run_args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
         .name(env!("CARGO_CRATE_NAME"))
         .description("Disables input during breaks")
         .args(args)
+        .overwrite_existing(true)
         .prepare_install()
         .wrap_err("Could not set up installation")?;
 
