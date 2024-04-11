@@ -18,4 +18,4 @@ serde = { version = "1.0.197", features = ["derive"] }
 sudo = "0.6.0"
 thiserror = "1.0.58"
 
-service-install = { version = "0.3" }
+service-install = { version = "0.4" }
