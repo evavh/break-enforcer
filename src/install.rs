@@ -37,11 +37,11 @@ pub fn set_up(run_args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
         args.push(config_path.display().to_string());
     }
     args.push("run".to_string());
-    args.push(format!("--work_duration"));
+    args.push(format!("--work-duration"));
     args.push(fmt_dur(run_args.work_duration));
-    args.push(format!("--break_duration"));
+    args.push(format!("--break-duration"));
     args.push(fmt_dur(run_args.break_duration));
-    args.push(format!("--grace_duration"));
+    args.push(format!("--grace-duration"));
     args.push(fmt_dur(run_args.grace_duration));
 
     let steps = install_system!()
