@@ -4,9 +4,9 @@ use color_eyre::eyre::{eyre, Context};
 use color_eyre::{Result, Section};
 
 use crate::check_inputs::InputResult;
+use crate::notification::notify_all_users;
 use crate::{check_inputs, watch};
 use crate::{check_inputs::inactivity_watcher, config};
-use crate::notification::notify_all_users;
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -22,7 +22,6 @@ pub(crate) fn run(
     break_duration: Duration,
     grace_duration: Duration,
 ) -> Result<()> {
-
     let (online_devices, new) = watch::devices();
 
     let to_block =

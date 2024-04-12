@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use color_eyre::{eyre, Section};
 use std::num::ParseFloatError;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -23,6 +24,32 @@ pub enum Commands {
     /// Pick the devices to block and write them to a config file.
     /// (Interactive UI)
     Wizard,
+}
+
+pub fn validate_args(cli: &Cli) -> color_eyre::Result<()> {
+    let Commands::Run {
+        work_duration,
+        break_duration,
+        ..
+    } = cli.command
+    else {
+        return Ok(());
+    };
+    if work_duration <= Duration::from_secs(1) {
+        Err(eyre::eyre!(
+            "Work duration must be at least 1 second, it is: {:?}",
+            work_duration
+        ))
+        .suppress_backtrace(true)
+    } else if break_duration <= Duration::from_secs(1) {
+        Err(eyre::eyre!(
+            "Break must be at least 1 second, it is: {:?}",
+            break_duration
+        ))
+        .suppress_backtrace(true)
+    } else {
+        Ok(())
+    }
 }
 
 /// Disables specified input devices during breaks. The period between breaks,
@@ -77,6 +104,8 @@ pub(crate) fn parse_colon_duration(arg: &str) -> Result<f32, ParseError> {
     };
     let mut seconds = seconds.parse().map_err(|e| second_err(e, arg))?;
     let Some((hours, minutes)) = rest.rsplit_once(':') else {
+        let minutes: f32 = rest.parse().map_err(|e| minute_err(e, arg))?;
+        seconds += 60.0 * minutes;
         return Ok(seconds);
     };
     seconds += 60.0 * minutes.parse::<f32>().map_err(|e| minute_err(e, minutes))?;
@@ -105,4 +134,15 @@ pub(crate) fn parse_duration(arg: &str) -> Result<Duration, ParseError> {
         parse_colon_duration(arg)?
     };
     Ok(std::time::Duration::from_secs_f32(seconds))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_colon_duration() {
+        assert_eq!(parse_colon_duration("10:00").unwrap(), 60. * 10.);
+        assert_eq!(parse_colon_duration("07:00").unwrap(), 60. * 7.);
+    }
 }
