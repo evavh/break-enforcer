@@ -84,6 +84,8 @@ pub(crate) fn parse_colon_duration(arg: &str) -> Result<f32, ParseError> {
     };
     let mut seconds = seconds.parse().map_err(|e| second_err(e, arg))?;
     let Some((hours, minutes)) = rest.rsplit_once(':') else {
+        let minutes: f32 = rest.parse().map_err(|e| minute_err(e, arg))?;
+        seconds += 60.0 * minutes;
         return Ok(seconds);
     };
     seconds += 60.0 * minutes.parse::<f32>().map_err(|e| minute_err(e, minutes))?;
@@ -112,4 +114,15 @@ pub(crate) fn parse_duration(arg: &str) -> Result<Duration, ParseError> {
         parse_colon_duration(arg)?
     };
     Ok(std::time::Duration::from_secs_f32(seconds))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_colon_duration() {
+        assert_eq!(parse_colon_duration("10:00").unwrap(), 60. * 10.);
+        assert_eq!(parse_colon_duration("07:00").unwrap(), 60. * 7.);
+    }
 }

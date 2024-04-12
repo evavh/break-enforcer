@@ -1,9 +1,7 @@
- use std::path::PathBuf;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use color_eyre::eyre::{eyre, Context, Result};
-use service_install::install::files::MoveError;
-use service_install::install::PrepareInstallError;
 use service_install::{install_system, tui};
 
 use crate::cli::RunArgs;
@@ -23,7 +21,7 @@ fn fmt_dur(dur: Duration) -> String {
     }
 }
 
-pub fn set_up(run_args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
+pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     let to_block = config::read(config_path.clone())
         .wrap_err("Could not read devices to block from config")
         .wrap_err("Could not verify the config file is not empty")?;
@@ -35,15 +33,15 @@ pub fn set_up(run_args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
 
     let mut args = Vec::new();
     if let Some(config_path) = config_path {
-        args.push(format!("--config-path"));
+        args.push("--config-path".to_string());
         args.push(config_path.display().to_string());
     }
     args.push("run".to_string());
-    args.push(format!("--work-duration"));
+    args.push("--work-duration".to_string());
     args.push(fmt_dur(run_args.work_duration));
-    args.push(format!("--break-duration"));
+    args.push("--break-duration".to_string());
     args.push(fmt_dur(run_args.break_duration));
-    args.push(format!("--grace-duration"));
+    args.push("--grace-duration".to_string());
     args.push(fmt_dur(run_args.grace_duration));
 
     let steps = install_system!()
@@ -78,6 +76,5 @@ fn test_fmt_dur() {
     );
 
     assert_eq!(&fmt_dur(Duration::from_secs(0)), "0s");
-
     assert_eq!(&fmt_dur(Duration::from_secs(61)), "01:01");
 }
