@@ -26,32 +26,6 @@ pub enum Commands {
     Wizard,
 }
 
-pub fn validate_args(cli: &Cli) -> color_eyre::Result<()> {
-    let Commands::Run {
-        work_duration,
-        break_duration,
-        ..
-    } = cli.command
-    else {
-        return Ok(());
-    };
-    if work_duration <= Duration::from_secs(1) {
-        Err(eyre::eyre!(
-            "Work duration must be at least 1 second, it is: {:?}",
-            work_duration
-        ))
-        .suppress_backtrace(true)
-    } else if break_duration <= Duration::from_secs(1) {
-        Err(eyre::eyre!(
-            "Break must be at least 1 second, it is: {:?}",
-            break_duration
-        ))
-        .suppress_backtrace(true)
-    } else {
-        Ok(())
-    }
-}
-
 /// Disables specified input devices during breaks. The period between breaks,
 /// length of the breaks and time before getting a warning can all be specified.
 ///
