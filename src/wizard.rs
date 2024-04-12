@@ -9,10 +9,12 @@ use dialoguer::{Confirm, MultiSelect};
 use itertools::Itertools;
 
 use crate::config::{self, InputFilter};
-use crate::watch::{BlockableInput, OnlineDevices};
+use crate::watch::{self, BlockableInput};
 
 // todo deal with devices with multiple names
-pub fn run(devices: &OnlineDevices, custom_config_path: Option<PathBuf>) -> Result<()> {
+pub fn run(custom_config_path: Option<PathBuf>) -> Result<()> {
+    let (devices, _) = watch::devices();
+
     let config: HashMap<_, _> = config::read(custom_config_path.clone())
         .wrap_err("Could not read custom config")?
         .into_iter()
