@@ -1,8 +1,21 @@
 [package]
 name = "break-enforcer-s"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+base64 = "0.22.0"
+clap = { version = "4.5.2", features = ["derive"] }
+color-eyre = "0.6.2"
+dialoguer = { version = "0.11.0", features = ["fuzzy-select"] }
+evdev = { version = "0.12.1" }
+inotify = "0.10.2"
+itertools = "0.12.1"
+ron = "0.8.1"
+serde = { version = "1.0.197", features = ["derive"] }
+sudo = "0.6.0"
+thiserror = "1.0.58"
+
+service-install = { version = "0.4" }
