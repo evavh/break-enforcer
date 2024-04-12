@@ -13,7 +13,7 @@ mod config;
 mod install;
 mod notification;
 mod run;
-mod watch;
+mod watch_and_block;
 mod wizard;
 
 fn main() -> color_eyre::Result<()> {

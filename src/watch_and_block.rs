@@ -13,6 +13,7 @@ use base64::{engine::general_purpose, Engine as _};
 use color_eyre::eyre::Context;
 use color_eyre::{Result, Section};
 use inotify::{EventMask, Inotify, WatchMask};
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::check_inputs::device_removed;
@@ -86,6 +87,7 @@ pub struct OnlineDevices {
 impl OnlineDevices {
     lock_and_call_inner!(pub list_inputs,; Result<Vec<BlockableInput>>);
     lock_and_call_inner!(insert, raw_dev: evdev::Device, event_path: PathBuf; bool);
+    lock_and_call_inner!(remove, event_path: PathBuf);
     lock_and_call_inner!(lock_all_matching, id: &InputFilter; Result<()>);
     lock_and_call_inner!(unlock_all_matching, id: &InputFilter; Result<()>);
 
@@ -113,6 +115,7 @@ enum Event {
     UnLockRequested(InputFilter, mpsc::Sender<Result<()>>),
     DevError(color_eyre::Result<()>),
     DevAdded(PathBuf),
+    DevRemoved(PathBuf),
 }
 
 /// use `unlock` to re-enable the disabled input device
@@ -189,6 +192,39 @@ impl Inner {
         }
     }
 
+    fn remove(&mut self, event_path: PathBuf) {
+        dbg!(self
+            .id_to_devices
+            .values()
+            .flat_map(|k| k.keys())
+            .collect_vec());
+        if let Some(empty_after_remove) = self
+            .id_to_devices
+            .iter()
+            .find(|(_, map)| {
+                map.len() == 1 && *map.keys().next().expect("len is one") == event_path
+            })
+            .map(|(id, _)| id)
+            .copied()
+        {
+            let removed = self
+                .id_to_devices
+                .remove(&empty_after_remove)
+                .expect("just found")
+                .values()
+                .map(Device::name)
+                .collect_vec();
+            dbg!(removed);
+            return;
+        }
+
+        for (_, inputs) in self.id_to_devices.iter_mut() {
+            if let Some(device) = inputs.remove(&event_path) {
+                dbg!(device.name());
+            }
+        }
+    }
+
     fn list_inputs(&mut self) -> Result<Vec<BlockableInput>> {
         self.check_status()?;
 
@@ -236,7 +272,7 @@ impl Inner {
             .values_mut()
             .filter(|device| filter.names.contains(&device.name()))
         {
-            match device.raw_dev.grab() {
+            match dbg!(device.raw_dev.grab()) {
                 Ok(()) => (),
                 Err(e) if e.kind() == ErrorKind::ResourceBusy => (),
                 Err(e) if device_removed(&e) => (),
@@ -264,11 +300,6 @@ pub struct NewInput {
     pub path: PathBuf,
 }
 
-/* TODO: use ionotify instead? (watching /dev/input)
- * would need async to also wait for rx_recv
- * or another thread sending `Order::scan`
- * look at cpu usage first though
- * <15-03-24, dvdsk> */
 pub fn devices() -> (OnlineDevices, Receiver<NewInput>) {
     let (order_tx, order_rx) = mpsc::channel();
     let mut online = OnlineDevices {
@@ -285,18 +316,34 @@ pub fn devices() -> (OnlineDevices, Receiver<NewInput>) {
         send_new_devices(&order_tx);
     });
 
+    let mut locked = None;
     let mut online2 = online.clone();
     thread::spawn(move || loop {
         match order_rx.recv_timeout(Duration::from_secs(5)) {
             Ok(Event::LockRequested(filter, answer)) => {
                 let res = online2.lock_all_matching(&filter);
+                locked = Some(filter);
                 answer.send(res).expect("lock fn does not panic");
             }
             Ok(Event::UnLockRequested(filter, answer)) => {
+                locked = None;
                 let res = online2.unlock_all_matching(&filter);
                 answer.send(res).expect("unlock fn does not panic");
             }
-            Ok(Event::DevAdded(event_path)) => add_device(&mut online2, &new_dev_tx, event_path),
+            Ok(Event::DevAdded(event_path)) => {
+                dbg!(&event_path);
+                add_device(&mut online2, &new_dev_tx, event_path);
+                if let Some(ref filter) = locked {
+                    if let Err(e) = online2.lock_all_matching(filter) {
+                        dbg!("{e:?}");
+                        online2.inner.lock().unwrap().status = Err(e);
+                    }
+                }
+            }
+            Ok(Event::DevRemoved(event_path)) => {
+                dbg!(&event_path);
+                online2.remove(event_path);
+            }
             Ok(Event::DevError(error)) => {
                 // next time online devices is queried it will report this error
                 online2.inner.lock().unwrap().status = error;
@@ -316,14 +363,25 @@ fn send_initial_devices(online: &mut OnlineDevices, new_dev_tx: &Sender<NewInput
         let entry = entry.unwrap();
         let path = entry.path();
         let fname = path.file_name().unwrap();
+        // note, there are legacy events (mouse/js) these are
+        // duplicates of the event<number> devices. Therefore we
+        // do not add them.
         if fname.as_bytes().starts_with(b"event") {
             add_device(online, new_dev_tx, path);
         }
     }
 }
 
-fn add_device(online: &mut OnlineDevices, new_dev_tx: &Sender<NewInput>, event_path: PathBuf) {
-    let device = evdev::Device::open(&event_path).unwrap();
+type DeviceName = String;
+fn add_device(
+    online: &mut OnlineDevices,
+    new_dev_tx: &Sender<NewInput>,
+    event_path: PathBuf,
+) -> Option<DeviceName> {
+    let Ok(device) = evdev::Device::open(&event_path) else {
+        eprintln!("Could not open device at: {}", event_path.display());
+        return None;
+    };
     let id = InputId::from(device.input_id());
     let name = device_name(&device);
     let new = online.insert(device, event_path.clone());
@@ -331,10 +389,14 @@ fn add_device(online: &mut OnlineDevices, new_dev_tx: &Sender<NewInput>, event_p
         new_dev_tx
             .send(NewInput {
                 id,
-                name,
+                name: name.clone(),
                 path: event_path,
             })
             .expect("watcher should never end and drop rx");
+        Some(name)
+    } else {
+        dbg!("device is already in map");
+        None
     }
 }
 
@@ -342,24 +404,38 @@ fn send_new_devices(tx: &Sender<Event>) {
     let mut inotify = Inotify::init().unwrap();
     let mut buffer = [0; 1024];
 
-    inotify.watches().add(DEV_DIR, WatchMask::CREATE).unwrap();
+    inotify
+        .watches()
+        .add(DEV_DIR, WatchMask::CREATE | WatchMask::DELETE)
+        .unwrap();
 
-    let events = match inotify.read_events_blocking(&mut buffer) {
-        Err(err) => {
-            let res = Err(err).wrap_err("inotify could not read events");
-            tx.send(Event::DevError(res)).unwrap();
-            return;
-        }
-        Ok(events) => events,
-    };
-
-    for event in events {
-        let Some(file_name) = event.name else {
-            continue;
+    loop {
+        let events = match inotify.read_events_blocking(&mut buffer) {
+            Err(err) => {
+                let res = Err(err).wrap_err("inotify could not read events");
+                tx.send(Event::DevError(res)).unwrap();
+                return;
+            }
+            Ok(events) => events,
         };
-        let path = PathBuf::from_str(DEV_DIR).unwrap().join(file_name);
-        if event.mask.contains(EventMask::CREATE) {
-            tx.send(Event::DevAdded(path.clone())).unwrap();
+
+        for event in events {
+            let Some(file_name) = event.name else {
+                continue;
+            };
+            // note, there are legacy events (mouse/js) these are
+            // duplicates of the event<number> devices. Therefore we
+            // do not respond to them.
+            if !file_name.as_bytes().starts_with(b"event") {
+                continue;
+            }
+
+            let path = PathBuf::from_str(DEV_DIR).unwrap().join(file_name);
+            if event.mask.contains(EventMask::CREATE) {
+                tx.send(Event::DevAdded(path.clone())).unwrap();
+            } else if event.mask.contains(EventMask::DELETE) {
+                tx.send(Event::DevRemoved(path.clone())).unwrap();
+            }
         }
     }
 }

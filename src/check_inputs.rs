@@ -9,7 +9,7 @@ use std::{
     thread,
 };
 
-use crate::{config::InputFilter, watch::NewInput};
+use crate::{config::InputFilter, watch_and_block::NewInput};
 
 pub fn wait_for_input(file: &mut File) -> std::io::Result<()> {
     let mut packet = [0u8; 24];

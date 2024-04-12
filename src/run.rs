@@ -6,7 +6,7 @@ use color_eyre::{Result, Section};
 use crate::check_inputs::InputResult;
 use crate::cli::RunArgs;
 use crate::notification::notify_all_users;
-use crate::{check_inputs, watch};
+use crate::{check_inputs, watch_and_block};
 use crate::{check_inputs::inactivity_watcher, config};
 use std::{
     sync::{
@@ -25,7 +25,7 @@ pub(crate) fn run(
     }: RunArgs,
     config_path: Option<PathBuf>,
 ) -> Result<()> {
-    let (online_devices, new) = watch::devices();
+    let (online_devices, new) = watch_and_block::devices();
 
     let to_block =
         config::read(config_path).wrap_err("Could not read devices to block from config")?;
