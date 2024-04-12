@@ -4,6 +4,7 @@
 #![feature(io_error_more)]
 
 use clap::Parser;
+use cli::validate_args;
 use color_eyre::eyre::Context;
 use color_eyre::{eyre::eyre, Section};
 
@@ -21,6 +22,7 @@ fn main() -> color_eyre::Result<()> {
         .install()
         .expect("Only called once");
     let args = cli::Cli::parse();
+    validate_args(&args)?;
 
     // check after args such that help can run without root
     if let sudo::RunningAs::User = sudo::check() {
