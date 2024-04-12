@@ -1,5 +1,4 @@
 use clap::{Parser, Subcommand};
-use color_eyre::{eyre, Section};
 use std::num::ParseFloatError;
 use std::path::PathBuf;
 use std::time::Duration;
