@@ -1,5 +1,5 @@
 use core::fmt;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
@@ -13,13 +13,14 @@ use base64::{engine::general_purpose, Engine as _};
 use color_eyre::eyre::Context;
 use color_eyre::{Result, Section};
 use inotify::{EventMask, Inotify, WatchMask};
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use tracing::{debug, error, warn};
 
 use crate::check_inputs::device_removed;
 use crate::config::InputFilter;
 
 struct Device {
+    locked: bool,
     raw_dev: evdev::Device,
 }
 
@@ -181,7 +182,10 @@ impl Inner {
     /// if it was already present ignore
     fn insert(&mut self, raw_dev: evdev::Device, event_path: PathBuf) -> bool {
         let id = raw_dev.input_id().into();
-        let device = Device { raw_dev };
+        let device = Device {
+            raw_dev,
+            locked: false,
+        };
         if let Some(in_map) = self.id_to_devices.get_mut(&id) {
             let existing = in_map.insert(event_path, device);
             existing.is_none() // is_new
@@ -193,11 +197,7 @@ impl Inner {
     }
 
     fn remove(&mut self, event_path: PathBuf) {
-        dbg!(self
-            .id_to_devices
-            .values()
-            .flat_map(|k| k.keys())
-            .collect_vec());
+        let mut removed = Vec::new();
         if let Some(empty_after_remove) = self
             .id_to_devices
             .iter()
@@ -207,21 +207,27 @@ impl Inner {
             .map(|(id, _)| id)
             .copied()
         {
-            let removed = self
-                .id_to_devices
+            self.id_to_devices
                 .remove(&empty_after_remove)
                 .expect("just found")
                 .values()
                 .map(Device::name)
-                .collect_vec();
-            dbg!(removed);
-            return;
+                .collect_into(&mut removed);
         }
 
         for (_, inputs) in self.id_to_devices.iter_mut() {
             if let Some(device) = inputs.remove(&event_path) {
-                dbg!(device.name());
+                removed.push(device.name());
             }
+        }
+
+        if removed.is_empty() {
+            warn!(
+                "Device disconnected but it wasnt registered, event_path: {}",
+                event_path.display()
+            );
+        } else {
+            debug!("Device(s) disconnected: {removed:?}");
         }
     }
 
@@ -247,11 +253,20 @@ impl Inner {
 
         for device in to_lock
             .values_mut()
+            .filter(|device| device.locked)
             .filter(|device| filter.names.contains(&device.name()))
         {
             match device.raw_dev.ungrab() {
-                Ok(()) => (),
-                Err(e) if device_removed(&e) => (),
+                Ok(()) => {
+                    debug!("Unlocked: {}", device.name());
+                    device.locked = false;
+                }
+                Err(e) if device_removed(&e) => {
+                    warn!(
+                        "Could not unlock, device probably removed: {}",
+                        device.name()
+                    )
+                }
                 err @ Err(_) => {
                     return err
                         .wrap_err("Could not ungrab (release exclusive access) to device")
@@ -270,12 +285,20 @@ impl Inner {
 
         for device in to_lock
             .values_mut()
+            .filter(|device| !device.locked)
             .filter(|device| filter.names.contains(&device.name()))
         {
-            match dbg!(device.raw_dev.grab()) {
-                Ok(()) => (),
-                Err(e) if e.kind() == ErrorKind::ResourceBusy => (),
-                Err(e) if device_removed(&e) => (),
+            match device.raw_dev.grab() {
+                Ok(()) => {
+                    debug!("Locked: {}", device.name());
+                    device.locked = true;
+                }
+                Err(e) if e.kind() == ErrorKind::ResourceBusy => {
+                    warn!("Could not lock, device busy: {}", device.name())
+                }
+                Err(e) if device_removed(&e) => {
+                    warn!("Could not lock, device probably removed: {}", device.name())
+                }
                 err @ Err(_) => {
                     return err
                         .wrap_err("Could not grab (acquire exclusive access) to device")
@@ -316,32 +339,30 @@ pub fn devices() -> (OnlineDevices, Receiver<NewInput>) {
         send_new_devices(&order_tx);
     });
 
-    let mut locked = None;
+    let mut locked = HashSet::new();
     let mut online2 = online.clone();
     thread::spawn(move || loop {
         match order_rx.recv_timeout(Duration::from_secs(5)) {
             Ok(Event::LockRequested(filter, answer)) => {
                 let res = online2.lock_all_matching(&filter);
-                locked = Some(filter);
+                locked.insert(filter);
                 answer.send(res).expect("lock fn does not panic");
             }
             Ok(Event::UnLockRequested(filter, answer)) => {
-                locked = None;
+                locked.remove(&filter);
                 let res = online2.unlock_all_matching(&filter);
                 answer.send(res).expect("unlock fn does not panic");
             }
             Ok(Event::DevAdded(event_path)) => {
-                dbg!(&event_path);
                 add_device(&mut online2, &new_dev_tx, event_path);
-                if let Some(ref filter) = locked {
+                for filter in &locked {
                     if let Err(e) = online2.lock_all_matching(filter) {
-                        dbg!("{e:?}");
+                        error!("Failed to lock devices matching filter, error: {e:?}");
                         online2.inner.lock().unwrap().status = Err(e);
                     }
                 }
             }
             Ok(Event::DevRemoved(event_path)) => {
-                dbg!(&event_path);
                 online2.remove(event_path);
             }
             Ok(Event::DevError(error)) => {
@@ -379,7 +400,10 @@ fn add_device(
     event_path: PathBuf,
 ) -> Option<DeviceName> {
     let Ok(device) = evdev::Device::open(&event_path) else {
-        eprintln!("Could not open device at: {}", event_path.display());
+        warn!(
+            "Could not open device at: {}, ignoring the device",
+            event_path.display()
+        );
         return None;
     };
     let id = InputId::from(device.input_id());
@@ -393,9 +417,10 @@ fn add_device(
                 path: event_path,
             })
             .expect("watcher should never end and drop rx");
+        debug!("added device: {}", name);
         Some(name)
     } else {
-        dbg!("device is already in map");
+        debug!("device: {} is already tracked", name);
         None
     }
 }
