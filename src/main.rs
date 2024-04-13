@@ -2,10 +2,12 @@
 #![feature(iter_intersperse)]
 #![feature(slice_flatten)]
 #![feature(io_error_more)]
+#![feature(iter_collect_into)]
 
 use clap::Parser;
 use color_eyre::eyre::Context;
 use color_eyre::{eyre::eyre, Section};
+use tracing_subscriber::fmt::time::uptime;
 
 mod check_inputs;
 mod cli;
@@ -21,7 +23,21 @@ fn main() -> color_eyre::Result<()> {
         .display_location_section(false)
         .install()
         .expect("Only called once");
+
     let cli = cli::Cli::parse();
+
+    let trace_level = if cli.verbose {
+        tracing::Level::TRACE
+    } else {
+        tracing::Level::WARN
+    };
+
+    tracing_subscriber::fmt()
+        .with_max_level(trace_level)
+        .with_file(false)
+        .with_target(false)
+        .with_timer(uptime())
+        .init();
 
     // check after args such that help can run without root
     if let sudo::RunningAs::User = sudo::check() {

@@ -52,6 +52,9 @@ pub struct Cli {
     /// Path to create/read/update list of devices to/from
     #[arg(short, long)]
     pub config_path: Option<PathBuf>,
+    /// Print many traces and logs
+    #[arg(short, long)]
+    pub verbose: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
