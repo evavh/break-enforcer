@@ -2,6 +2,7 @@ use core::fmt;
 use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
@@ -88,7 +89,7 @@ pub struct OnlineDevices {
 impl OnlineDevices {
     lock_and_call_inner!(pub list_inputs,; Result<Vec<BlockableInput>>);
     lock_and_call_inner!(insert, raw_dev: evdev::Device, event_path: PathBuf; bool);
-    lock_and_call_inner!(remove, event_path: PathBuf);
+    lock_and_call_inner!(remove, event_path: &Path);
     lock_and_call_inner!(lock_all_matching, id: &InputFilter; Result<()>);
     lock_and_call_inner!(unlock_all_matching, id: &InputFilter; Result<()>);
 
@@ -196,7 +197,7 @@ impl Inner {
         }
     }
 
-    fn remove(&mut self, event_path: PathBuf) {
+    fn remove(&mut self, event_path: &Path) {
         let mut removed = Vec::new();
         if let Some(empty_after_remove) = self
             .id_to_devices
@@ -215,8 +216,8 @@ impl Inner {
                 .collect_into(&mut removed);
         }
 
-        for (_, inputs) in self.id_to_devices.iter_mut() {
-            if let Some(device) = inputs.remove(&event_path) {
+        for inputs in self.id_to_devices.values_mut() {
+            if let Some(device) = inputs.remove(event_path) {
                 removed.push(device.name());
             }
         }
@@ -265,7 +266,7 @@ impl Inner {
                     warn!(
                         "Could not unlock, device probably removed: {}",
                         device.name()
-                    )
+                    );
                 }
                 err @ Err(_) => {
                     return err
@@ -294,10 +295,10 @@ impl Inner {
                     device.locked = true;
                 }
                 Err(e) if e.kind() == ErrorKind::ResourceBusy => {
-                    warn!("Could not lock, device busy: {}", device.name())
+                    warn!("Could not lock, device busy: {}", device.name());
                 }
                 Err(e) if device_removed(&e) => {
-                    warn!("Could not lock, device probably removed: {}", device.name())
+                    warn!("Could not lock, device probably removed: {}", device.name());
                 }
                 err @ Err(_) => {
                     return err
@@ -363,7 +364,7 @@ pub fn devices() -> (OnlineDevices, Receiver<NewInput>) {
                 }
             }
             Ok(Event::DevRemoved(event_path)) => {
-                online2.remove(event_path);
+                online2.remove(&event_path);
             }
             Ok(Event::DevError(error)) => {
                 // next time online devices is queried it will report this error

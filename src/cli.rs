@@ -3,6 +3,7 @@ use std::num::ParseFloatError;
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[allow(clippy::struct_field_names)]
 #[derive(Debug, Args)]
 pub struct RunArgs {
     /// Period after which input will be disabled.  
