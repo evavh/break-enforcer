@@ -62,7 +62,7 @@ pub(crate) fn run(
         block_on_new_input(&recv_any_input).wrap_err("Could not block till new input")?;
         notify_all_users(&format!("Starting work timer for {work_duration:?}"));
         work_start_sender.send(true).unwrap();
-        match break_skip_receiver.recv_timeout(work_duration - grace_duration) {
+        match break_skip_receiver.recv_timeout(work_duration.saturating_sub(grace_duration)) {
             Ok(_) => {
                 notify_all_users("No input for breaktime");
                 block_on_new_input(&recv_any_input).wrap_err("Could not block till new input")?;
@@ -73,7 +73,8 @@ pub(crate) fn run(
             Err(e) => panic!("Unexpected error: {e}"),
         }
 
-        notify_all_users(&format!("Locking in {grace_duration:?}!"));
+        let alarm_in = grace_duration.min(work_duration);
+        notify_all_users(&format!("Locking in {alarm_in:?}!"));
         thread::sleep(grace_duration);
 
         let mut locks = Vec::new();
