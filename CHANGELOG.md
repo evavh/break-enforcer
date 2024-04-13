@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixes
 - No longer crashing if grace/warn for lock duration smaller then work duration
 
+### Changes
+- Durations consisting of a single number without postfix unit or a colon in
+  front are no longer allowed. These where usually the result of a user
+  forgetting the unit. This led to way shorter break/work times then intended
+
 ## [0.2.1] - 2024-04-13
 
 ### Fixed

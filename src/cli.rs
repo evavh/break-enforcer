@@ -39,10 +39,11 @@ pub enum Commands {
 /// Durations can be passed in two formats:
 ///  - <amount><unit>, for example: 32m
 ///    unit is one of h,m and s
-///  - hh:mm:ss, where hh and mm are optional
-///    example: 1:30:15
+///  - hh:mm:ss, where hh and mm are optional however you 
+///    do need at least one `:`
+///    * example: 1:30:15
 ///         one and a halve hour and 15 seconds
-///    example: 10:40
+///    * example: 10:40
 ///         ten minutes and 40 seconds
 ///
 #[derive(Parser, Debug)]
@@ -66,6 +67,8 @@ pub enum ParseError {
     Minute(ParseFloatError, String),
     #[error("Could not parse the hours, input: {1}, error: {0}")]
     Hour(ParseFloatError, String),
+    #[error("Durations need a suffix or one `:`")]
+    NoColonOrUnit(String),
 }
 
 fn second_err(e: ParseFloatError, s: &str) -> ParseError {
@@ -81,12 +84,17 @@ fn hour_err(e: ParseFloatError, s: &str) -> ParseError {
 /// Parses a string in format
 ///     hh:mm:ss,
 ///     mm:ss,
-///     ss,
+///     :ss,
 pub(crate) fn parse_colon_duration(arg: &str) -> Result<f32, ParseError> {
     let Some((rest, seconds)) = arg.rsplit_once(':') else {
-        return arg.parse().map_err(|e| second_err(e, arg));
+        return Err(ParseError::NoColonOrUnit(arg.to_string()));
     };
+
     let mut seconds = seconds.parse().map_err(|e| second_err(e, arg))?;
+    if rest.is_empty() {
+        return Ok(seconds);
+    }
+
     let Some((hours, minutes)) = rest.rsplit_once(':') else {
         let minutes: f32 = rest.parse().map_err(|e| minute_err(e, arg))?;
         seconds += 60.0 * minutes;
@@ -106,7 +114,7 @@ pub(crate) fn parse_colon_duration(arg: &str) -> Result<f32, ParseError> {
 ///  - 30s
 ///  - hh:mm:ss,
 ///  - mm:ss,
-///  - ss,
+///  - :ss,
 pub(crate) fn parse_duration(arg: &str) -> Result<Duration, ParseError> {
     let seconds = if let Some(hours) = arg.strip_suffix('h') {
         60. * 60. * hours.parse::<f32>().map_err(|e| hour_err(e, hours))?
