@@ -1,11 +1,12 @@
 use std::path::PathBuf;
+use std::time::Instant;
 
 use color_eyre::eyre::{eyre, Context};
 use color_eyre::{Result, Section};
 
 use crate::check_inputs::InputResult;
 use crate::cli::RunArgs;
-use crate::notification::notify_all_users;
+use crate::integration::Status;
 use crate::{check_inputs, watch_and_block};
 use crate::{check_inputs::inactivity_watcher, config};
 use std::{
@@ -21,7 +22,9 @@ pub(crate) fn run(
     RunArgs {
         work_duration,
         break_duration,
-        grace_duration,
+        lock_warning,
+        status_file,
+        notifications,
     }: RunArgs,
     config_path: Option<PathBuf>,
 ) -> Result<()> {
@@ -57,14 +60,19 @@ pub(crate) fn run(
         });
     }
 
+    let mut status = Status::new(status_file, notifications, lock_warning)
+        .wrap_err("Could not setup status reporting")?;
+
     loop {
-        notify_all_users("Waiting for input to start work timer...");
+        status.set_waiting();
+
         block_on_new_input(&recv_any_input).wrap_err("Could not block till new input")?;
-        notify_all_users(&format!("Starting work timer for {work_duration:?}"));
         work_start_sender.send(true).unwrap();
-        match break_skip_receiver.recv_timeout(work_duration.saturating_sub(grace_duration)) {
+        status.set_working(Instant::now() + work_duration);
+
+        match break_skip_receiver.recv_timeout(work_duration) {
             Ok(_) => {
-                notify_all_users("No input for breaktime");
+                status.set_waiting();
                 block_on_new_input(&recv_any_input).wrap_err("Could not block till new input")?;
                 break_skip_is_sent.store(false, Ordering::Release);
                 continue;
@@ -72,10 +80,6 @@ pub(crate) fn run(
             Err(RecvTimeoutError::Timeout) => (),
             Err(e) => panic!("Unexpected error: {e}"),
         }
-
-        let alarm_in = grace_duration.min(work_duration);
-        notify_all_users(&format!("Locking in {alarm_in:?}!"));
-        thread::sleep(grace_duration);
 
         let mut locks = Vec::new();
 
@@ -87,7 +91,7 @@ pub(crate) fn run(
             );
         }
 
-        notify_all_users(&format!("Starting break timer for {break_duration:?}"));
+        status.set_on_break(Instant::now() + break_duration);
         thread::sleep(break_duration);
 
         for lock in locks {

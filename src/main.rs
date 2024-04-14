@@ -13,7 +13,7 @@ mod check_inputs;
 mod cli;
 mod config;
 mod install;
-mod notification;
+mod integration;
 mod run;
 mod watch_and_block;
 mod wizard;
