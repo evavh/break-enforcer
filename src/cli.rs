@@ -14,10 +14,20 @@ pub struct RunArgs {
     /// Note: run help command to see the duration format.
     #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
     pub break_duration: Duration,
-    /// Duration ahead of the break to show a notification
+    /// Optional takes a duration, if set sends a notification ahead of the break.
     /// Note: run help command to see the duration format.
     #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
-    pub grace_duration: Duration,
+    pub lock_warning: Option<Duration>,
+    /// Enable the status file. It contains a string
+    /// describing the time till the next break or the
+    /// time the current break takes. The file is located
+    /// at `/var/run/break_enforcer` and is called `status.txt`
+    #[arg(short, long)]
+    pub status_file: bool,
+    /// verbose notifications. Sends notifications when:
+    /// the break begins, a work session begins, we are waiting for input
+    #[arg(short, long)]
+    pub notifications: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -39,7 +49,7 @@ pub enum Commands {
 /// Durations can be passed in two formats:
 ///  - <amount><unit>, for example: 32m
 ///    unit is one of h,m and s
-///  - hh:mm:ss, where hh and mm are optional however you 
+///  - hh:mm:ss, where hh and mm are optional however you
 ///    do need at least one `:`
 ///    * example: 1:30:15
 ///         one and a halve hour and 15 seconds
