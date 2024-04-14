@@ -49,10 +49,11 @@ pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
         args.push("--status-file".to_string());
     }
 
+    let name = env!("CARGO_CRATE_NAME").replace('_', "-");
     let steps = install_system!()
         .current_exe()?
         .on_boot()
-        .name(env!("CARGO_CRATE_NAME"))
+        .name(name)
         .description("Disables input during breaks")
         .args(args)
         .overwrite_existing(true)
