@@ -48,7 +48,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with: 
         name: ${{ matrix.target }}
-        path: target/${{ matrix.target }}/release/break-enforcer-s
+        path: target/${{ matrix.target }}/release/break-enforcer
 
   release:
     runs-on: ubuntu-latest
@@ -71,7 +71,7 @@ jobs:
     - name: rename bins
       run: |
         suffix=`echo ${{ matrix.target }} | cut -d "-" -f 1`
-        mv ${{ matrix.target }}/break-enforcer-s break-enforcer-s_$suffix
+        mv ${{ matrix.target }}/break-enforcer break-enforcer_$suffix
     - name: changelog as release body
       run: cat CHANGELOG.md | awk '/^## /{if (++c == 2) {exit}} c == 1' | tail -n +2 > ${{ github.workspace }}-CHANGELOG.txt
     - name: Release
@@ -81,5 +81,5 @@ jobs:
         prerelease: false
         name: Release ${{ env.VERSION }}
         files: |
-          break-enforcer-s_*
+          break-enforcer_*
         tag_name: ${{ env.VERSION }}
