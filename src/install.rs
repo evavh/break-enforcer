@@ -7,7 +7,7 @@ use service_install::{install_system, tui};
 use crate::cli::RunArgs;
 use crate::config;
 
-fn fmt_dur(dur: Duration) -> String {
+pub fn fmt_dur(dur: Duration) -> String {
     let ss = dur.as_secs() % 60;
     let mm = (dur.as_secs() / 60) % 60;
     if mm == 0 {
@@ -41,8 +41,13 @@ pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     args.push(fmt_dur(run_args.work_duration));
     args.push("--break-duration".to_string());
     args.push(fmt_dur(run_args.break_duration));
-    args.push("--grace-duration".to_string());
-    args.push(fmt_dur(run_args.grace_duration));
+    if let Some(warn_duration) = run_args.lock_warning {
+        args.push("--lock-warning".to_string());
+        args.push(fmt_dur(warn_duration));
+    }
+    if run_args.status_file {
+        args.push("--status-file".to_string());
+    }
 
     let steps = install_system!()
         .current_exe()?
