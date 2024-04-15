@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changes
+- Time idle before a break is subtracted from the break time
+
+## [0.2.2] - 2024-04-15
+
+### Added 
+- Status file, use it to get the current status of `break_enforcer`. Useful in
+  a bar of a window manager or when writing a widget.
+
 ### Fixes
 - No longer crashing if grace/warn for lock duration smaller then work duration
 
@@ -14,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Durations consisting of a single number without postfix unit or a colon in
   front are no longer allowed. These where usually the result of a user
   forgetting the unit. This led to way shorter break/work times then intended
+- Grace duration is now `lock_warning` and is optional (omitting it will prevent
+  a notification being send when the break/lock is close.
 
 ## [0.2.1] - 2024-04-13
 

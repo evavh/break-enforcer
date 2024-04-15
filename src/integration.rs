@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -37,6 +37,8 @@ fn integrate(
     rx: &mpsc::Receiver<State>,
     mut file_status: Option<FileStatus>,
     state_notifications: bool,
+    idle: Arc<Mutex<Instant>>,
+    break_duration: Duration,
 ) -> Result<()> {
     let mut timeout = Duration::MAX;
     let mut state = State::Waiting;
@@ -60,7 +62,11 @@ fn integrate(
         let msg = match state {
             State::Waiting => String::from("-"),
             State::Work { next_break } => {
-                format!("locks in: {}", fmt_dur(next_break.duration_until()))
+                let idle = idle.lock().unwrap().elapsed();
+                let break_dur = break_duration.saturating_sub(idle);
+                let break_dur = fmt_dur(break_dur);
+                let next_break = fmt_dur(next_break.duration_until());
+                format!("{} break in: {}", break_dur, next_break)
             }
             State::Break { next_work } => {
                 format!("unlocks in: {}", fmt_dur(next_work.duration_until()))
@@ -81,6 +87,8 @@ impl Status {
         file_integration: bool,
         notifications: bool,
         lock_warning_notification: Option<Duration>,
+        idle: Arc<Mutex<Instant>>,
+        break_duration: Duration,
     ) -> Result<Self> {
         let file_status = if file_integration {
             Some(FileStatus::new()?)
@@ -89,7 +97,8 @@ impl Status {
         };
 
         let (tx, rx) = mpsc::channel();
-        let integrator = thread::spawn(move || integrate(&rx, file_status, notifications));
+        let integrator =
+            thread::spawn(move || integrate(&rx, file_status, notifications, idle, break_duration));
         Ok(Self {
             update: tx,
             integrator: Some(integrator),
@@ -128,7 +137,7 @@ impl Status {
         }
     }
 
-    pub(crate) fn set_on_break(&mut self, next_work: Instant) {
+    pub(crate) fn set_break(&mut self, next_work: Instant) {
         self.send(State::Break { next_work });
     }
 }

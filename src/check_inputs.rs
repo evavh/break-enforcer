@@ -2,45 +2,92 @@ use std::{
     fs::{self, File},
     io::{self, Read},
     sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc::{channel, Receiver, RecvTimeoutError, Sender},
-        Arc,
+        mpsc::{self, channel, Receiver, RecvTimeoutError, Sender, TryRecvError},
+        Arc, Mutex,
     },
     thread,
+    time::{Duration, Instant},
 };
+
+use color_eyre::eyre::Context;
 
 use crate::{config::InputFilter, watch_and_block::NewInput};
 
-pub fn wait_for_input(file: &mut File) -> std::io::Result<()> {
-    let mut packet = [0u8; 24];
-    file.read_exact(&mut packet)
+pub struct InactivityTracker {
+    idle_since: Arc<Mutex<Instant>>,
+    reset_notify: mpsc::Receiver<color_eyre::Result<()>>,
 }
 
-pub fn inactivity_watcher(
-    work_start_receiver: &Receiver<bool>,
-    break_skip_sender: &Sender<bool>,
-    break_skip_sent: &Arc<AtomicBool>,
-    input_receiver: &Receiver<InputResult>,
-    break_duration: std::time::Duration,
-) {
-    work_start_receiver.recv().unwrap();
+pub enum TrackResult {
+    ShouldReset,
+    ShouldBreak { user_idle: Duration },
+    Error(color_eyre::Report),
+}
 
+impl InactivityTracker {
+    pub fn new(input_receiver: Receiver<InputResult>, break_duration: Duration) -> Self {
+        let idle_since = Arc::new(Mutex::new(Instant::now()));
+        let (tx, rx) = mpsc::channel();
+        {
+            let idle_since = idle_since.clone();
+            thread::spawn(move || watch_activity(&input_receiver, break_duration, idle_since, tx));
+        }
+
+        Self {
+            idle_since,
+            reset_notify: rx,
+        }
+    }
+    pub fn reset_or_timeout(&mut self, work_duration: Duration) -> TrackResult {
+        // Empty the reset_notify. At this point in the program we just left a
+        // period without input (waiting or break). Therefore there has been no user
+        // activity until here. Any reset notification received after emptying
+        // the channel must have been send after the period without input and
+        // therefore at least a break duration must have elapsed.
+        loop {
+            match self.reset_notify.try_recv() {
+                Ok(Err(e)) => return TrackResult::Error(e),
+                Ok(Ok(())) => (),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => unreachable!(),
+            }
+        }
+
+        match self.reset_notify.recv_timeout(work_duration) {
+            Ok(Ok(())) => TrackResult::ShouldReset,
+            Ok(Err(e)) => TrackResult::Error(e),
+            Err(RecvTimeoutError::Timeout) => TrackResult::ShouldBreak {
+                user_idle: self.idle_since.lock().unwrap().elapsed(),
+            },
+            Err(RecvTimeoutError::Disconnected) => unreachable!(),
+        }
+    }
+
+    pub fn idle_handle(&self) -> Arc<Mutex<Instant>> {
+        self.idle_since.clone()
+    }
+}
+
+fn watch_activity(
+    input_receiver: &Receiver<InputResult>,
+    break_duration: Duration,
+    idle_since: Arc<Mutex<Instant>>,
+    reset_notify: mpsc::Sender<color_eyre::Result<()>>,
+) {
     loop {
         match input_receiver.recv_timeout(break_duration) {
-            Ok(Ok(_)) => (),
-            Ok(Err(_)) => return,
-            Err(RecvTimeoutError::Timeout) => {
-                if !break_skip_sent.load(Ordering::Acquire) {
-                    break_skip_sender.send(true).unwrap();
-                    break_skip_sent.store(true, Ordering::Release);
-                }
+            Ok(Ok(())) => *idle_since.lock().unwrap() = Instant::now(),
+            Err(RecvTimeoutError::Timeout) => reset_notify.send(Ok(())).unwrap(),
+            Err(RecvTimeoutError::Disconnected) => unreachable!(),
+            Ok(err @ Err(_)) => {
+                let err = err.wrap_err("test");
+                reset_notify.send(err).unwrap();
             }
-            Err(e) => panic!("Unexpected error: {e}"),
         }
     }
 }
 
-pub type InputResult = Result<bool, Arc<io::Error>>;
+pub type InputResult = Result<(), Arc<io::Error>>;
 
 pub(crate) fn watcher(
     just_connected: Receiver<NewInput>,
@@ -73,8 +120,8 @@ pub(crate) fn watcher(
 
 fn monitor_input(
     input: NewInput,
-    tx1: &Sender<Result<bool, Arc<io::Error>>>,
-    tx2: &Sender<Result<bool, Arc<io::Error>>>,
+    tx1: &Sender<InputResult>,
+    tx2: &Sender<InputResult>,
 ) {
     let mut file = match fs::File::open(input.path) {
         // means the device is disconnected
@@ -110,9 +157,14 @@ fn monitor_input(
             Ok(()) => (),
         };
 
-        let _ = tx1.send(Ok(true));
-        let _ = tx2.send(Ok(true));
+        let _ = tx1.send(Ok(()));
+        let _ = tx2.send(Ok(()));
     }
+}
+
+pub fn wait_for_input(file: &mut File) -> std::io::Result<()> {
+    let mut packet = [0u8; 24];
+    file.read_exact(&mut packet)
 }
 
 pub fn device_removed(e: &std::io::Error) -> bool {
