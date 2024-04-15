@@ -4,19 +4,12 @@ use std::time::Instant;
 use color_eyre::eyre::{eyre, Context};
 use color_eyre::{Result, Section};
 
-use crate::check_inputs::InputResult;
+use crate::check_inputs::{InactivityTracker, InputResult, TrackResult};
 use crate::cli::RunArgs;
+use crate::config;
 use crate::integration::Status;
 use crate::{check_inputs, watch_and_block};
-use crate::{check_inputs::inactivity_watcher, config};
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc::{channel, Receiver, RecvTimeoutError},
-        Arc,
-    },
-    thread,
-};
+use std::{sync::mpsc::Receiver, thread};
 
 pub(crate) fn run(
     RunArgs {
@@ -42,47 +35,31 @@ pub(crate) fn run(
     }
     let (recv_any_input, recv_any_input2) = check_inputs::watcher(new, to_block.clone());
 
-    let (break_skip_sender, break_skip_receiver) = channel();
-    let (work_start_sender, work_start_receiver) = channel();
-    let break_skip_is_sent = Arc::new(AtomicBool::new(false));
+    let mut inactivity_tracker = InactivityTracker::new(recv_any_input2, break_duration);
 
-    {
-        let break_skip_is_sent = break_skip_is_sent.clone();
-
-        thread::spawn(move || {
-            inactivity_watcher(
-                &work_start_receiver,
-                &break_skip_sender,
-                &break_skip_is_sent,
-                &recv_any_input2,
-                break_duration,
-            );
-        });
-    }
-
-    let mut status = Status::new(status_file, notifications, lock_warning)
-        .wrap_err("Could not setup status reporting")?;
+    let idle = inactivity_tracker.idle_handle();
+    let mut status = Status::new(
+        status_file,
+        notifications,
+        lock_warning,
+        idle,
+        break_duration,
+    )
+    .wrap_err("Could not setup status reporting")?;
 
     loop {
         status.set_waiting();
 
-        block_on_new_input(&recv_any_input).wrap_err("Could not block till new input")?;
-        work_start_sender.send(true).unwrap();
+        wait_for_user_activity(&recv_any_input).wrap_err("Could not wait for activity")?;
         status.set_working(Instant::now() + work_duration);
 
-        match break_skip_receiver.recv_timeout(work_duration) {
-            Ok(_) => {
-                status.set_waiting();
-                block_on_new_input(&recv_any_input).wrap_err("Could not block till new input")?;
-                break_skip_is_sent.store(false, Ordering::Release);
-                continue;
-            }
-            Err(RecvTimeoutError::Timeout) => (),
-            Err(e) => panic!("Unexpected error: {e}"),
-        }
+        let idle = match inactivity_tracker.reset_or_timeout(work_duration) {
+            TrackResult::Error(e) => Err(e).wrap_err("Could not track inactivity")?,
+            TrackResult::ShouldReset => continue,
+            TrackResult::ShouldBreak { user_idle } => user_idle,
+        };
 
         let mut locks = Vec::new();
-
         for device_id in to_block.iter().cloned() {
             locks.push(
                 online_devices
@@ -91,8 +68,8 @@ pub(crate) fn run(
             );
         }
 
-        status.set_on_break(Instant::now() + break_duration);
-        thread::sleep(break_duration);
+        status.set_break(Instant::now() + break_duration - idle);
+        thread::sleep(break_duration - idle);
 
         for lock in locks {
             lock.unlock()?;
@@ -100,8 +77,9 @@ pub(crate) fn run(
     }
 }
 
-fn block_on_new_input(recv_any_input: &Receiver<InputResult>) -> color_eyre::Result<()> {
+fn wait_for_user_activity(recv_any_input: &Receiver<InputResult>) -> color_eyre::Result<()> {
     loop {
+        // clear old events
         match recv_any_input.try_recv() {
             Err(_) => break,
             Ok(Err(e)) => return Err(e).wrap_err("Error with device file"),
@@ -109,10 +87,12 @@ fn block_on_new_input(recv_any_input: &Receiver<InputResult>) -> color_eyre::Res
         }
     }
 
-    #[allow(clippy::match_same_arms)]
-    match recv_any_input.recv() {
-        Err(_) => Ok(()), // device disconnected
-        Ok(Err(e)) => Err(e).wrap_err("Error with device file"),
-        Ok(Ok(_)) => Ok(()), // new event! stop blocking
+    loop {
+        #[allow(clippy::match_same_arms)]
+        match recv_any_input.recv() {
+            Err(_) => (), // device disconnected, ignore
+            Ok(Err(e)) => return Err(e).wrap_err("Error with device file"),
+            Ok(Ok(_)) => return Ok(()), // new event! stop blocking
+        }
     }
 }
