@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.3.0] - 2024-04-21
+
 ### Changes
 - Time idle before a break is subtracted from the break time
+- User is notified if staying idle for longer will reset the work period
 
 ## [0.2.2] - 2024-04-15
 
