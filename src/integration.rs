@@ -4,8 +4,6 @@ use std::time::{Duration, Instant};
 
 use color_eyre::Result;
 
-use crate::install::fmt_dur;
-
 mod file_status;
 use file_status::FileStatus;
 mod notification;
@@ -66,10 +64,10 @@ fn integrate(
                 let break_dur = break_duration.saturating_sub(idle);
                 let break_dur = fmt_dur(break_dur);
                 let next_break = fmt_dur(next_break.duration_until());
-                format!("{} break in: {}", break_dur, next_break)
+                format!("{} break in {}", break_dur, next_break)
             }
             State::Break { next_work } => {
-                format!("unlocks in: {}", fmt_dur(next_work.duration_until()))
+                format!("unlocks in {}", fmt_dur(next_work.duration_until()))
             }
         };
 
@@ -139,5 +137,24 @@ impl Status {
 
     pub(crate) fn set_break(&mut self, next_work: Instant) {
         self.send(State::Break { next_work });
+    }
+}
+
+fn fmt_mm_hh(dur: Duration) -> String {
+    let mm = (dur.as_secs_f32() / 60.0).round() as u8 % 60;
+    let hh = (dur.as_secs_f32() / 60.0 / 60.0).round() as u8;
+    if hh == 0 {
+        format!("{mm}m")
+    } else {
+        format!("{hh}h:{mm}m")
+    }
+}
+
+fn fmt_dur(dur: Duration) -> String {
+    let seconds = dur.as_secs();
+    if seconds > 60 {
+        fmt_mm_hh(dur)
+    } else {
+        return format!("{seconds}s");
     }
 }
