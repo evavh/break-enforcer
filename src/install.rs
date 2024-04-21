@@ -7,7 +7,7 @@ use service_install::{install_system, tui};
 use crate::cli::RunArgs;
 use crate::config;
 
-pub fn fmt_dur(dur: Duration) -> String {
+fn fmt_dur(dur: Duration) -> String {
     let ss = dur.as_secs() % 60;
     let mm = (dur.as_secs() / 60) % 60;
     if mm == 0 {
