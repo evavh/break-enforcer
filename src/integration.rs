@@ -6,6 +6,7 @@ use color_eyre::Result;
 
 mod file_status;
 use file_status::FileStatus;
+pub(crate) mod dbus;
 mod notification;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -28,6 +29,7 @@ impl DurationUntil for Instant {
 pub struct Status {
     update: mpsc::Sender<State>,
     integrator: Option<JoinHandle<Result<()>>>,
+    dbus_maintain: Option<JoinHandle<Result<()>>>,
 }
 
 fn integrate(
@@ -57,42 +59,69 @@ fn integrate(
             State::Work { .. } | State::Break { .. } => Duration::from_secs(1),
         };
 
-        let msg = match state {
-            State::Waiting => String::from("-"),
-            State::Work { next_break } => {
-                if let Some(before_break) = lock_warning_notification {
-                    if next_break.duration_until() < before_break {
-                        let msg = format!("locking in {}", fmt_dur(before_break));
-                        notification::notify_all_users(&msg);
-                    }
-                }
-
-                let idle = idle.lock().unwrap().elapsed();
-                if idle > Duration::from_secs(30) {
-                    let break_dur = break_duration.saturating_sub(idle);
-                    let break_dur = fmt_dur(break_dur);
-                    format!("idle, reset in {}", break_dur)
-                } else {
-                    let next_break = fmt_dur(next_break.duration_until());
-                    format!("break in {}", next_break)
-                }
-            }
-            State::Break { next_work } => {
-                format!("unlocks in {}", fmt_dur(next_work.duration_until()))
-            }
-        };
-
+        let msg = format_status(&state, &idle, break_duration);
+        /* TODO: dbus api status update <dvdsk> */
         if let Some(file_status) = &mut file_status {
             file_status.update(&msg);
         }
-        if state_notifications && state_changed {
-            notification::notify_all_users(&msg);
-        }
+        notify_if_needed(
+            &state,
+            /* TODO: merge these bools into a struct called "notifyable events" <dvdsk> */
+            lock_warning_notification,
+            state_notifications,
+            state_changed,
+            msg,
+        );
     }
 }
 
+fn notify_if_needed(
+    state: &State,
+    lock_warning_notification: Option<Duration>,
+    state_notifications: bool,
+    state_changed: bool,
+    msg: String,
+) {
+    match *state {
+        State::Work { next_break } => {
+            if let Some(before_break) = lock_warning_notification {
+                if next_break.duration_until() < before_break {
+                    let msg = format!("locking in {}", fmt_dur(before_break));
+                    notification::notify_all_users(&msg);
+                }
+            }
+        }
+        _ => (),
+    }
+
+    if state_notifications && state_changed {
+        notification::notify_all_users(&msg);
+    }
+}
+
+fn format_status(state: &State, idle: &Arc<Mutex<Instant>>, break_duration: Duration) -> String {
+    let msg = match *state {
+        State::Waiting => String::from("-"),
+        State::Work { next_break } => {
+            let idle = idle.lock().unwrap().elapsed();
+            if idle > Duration::from_secs(30) {
+                let break_dur = break_duration.saturating_sub(idle);
+                let break_dur = fmt_dur(break_dur);
+                format!("idle, reset in {}", break_dur)
+            } else {
+                let next_break = fmt_dur(next_break.duration_until());
+                format!("break in {}", next_break)
+            }
+        }
+        State::Break { next_work } => {
+            format!("unlocks in {}", fmt_dur(next_work.duration_until()))
+        }
+    };
+    msg
+}
+
 impl Status {
-    pub fn new(
+    pub(crate) fn new(
         file_integration: bool,
         notifications: bool,
         lock_warning_notification: Option<Duration>,
@@ -106,11 +135,23 @@ impl Status {
         };
 
         let (tx, rx) = mpsc::channel();
-        let integrator =
-            thread::spawn(move || integrate(&rx, file_status, notifications, idle, break_duration, lock_warning_notification));
+        let integrator = thread::spawn(move || {
+            integrate(
+                &rx,
+                file_status,
+                notifications,
+                idle,
+                break_duration,
+                lock_warning_notification,
+            )
+        });
+        let dbus_thread = thread::spawn(move || {
+            dbus::maintain_blocking()
+        });
         Ok(Self {
             update: tx,
             integrator: Some(integrator),
+            dbus_maintain: Some(dbus_thread),
         })
     }
 
