@@ -51,7 +51,10 @@ pub(crate) fn maintain(status: Status) -> Result<()> {
     for port in PORTS {
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
         match TcpListener::bind(addr) {
-            Ok(l) => listener = Some(l),
+            Ok(l) => {
+                listener = Some(l);
+                break;
+            }
             Err(e) if e.kind() == ErrorKind::AddrInUse => {
                 continue;
             }
