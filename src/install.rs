@@ -48,6 +48,9 @@ pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     if run_args.status_file {
         args.push("--status-file".to_string());
     }
+    if run_args.tcp_api {
+        args.push("--tcp-api".to_string());
+    }
 
     let name = env!("CARGO_CRATE_NAME").replace('_', "-");
     let steps = install_system!()
