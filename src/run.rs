@@ -17,6 +17,7 @@ pub(crate) fn run(
         break_duration,
         lock_warning,
         status_file,
+        tcp_api,
         notifications,
     }: RunArgs,
     config_path: Option<PathBuf>,
@@ -40,6 +41,7 @@ pub(crate) fn run(
     let idle = inactivity_tracker.idle_handle();
     let mut status = Status::new(
         status_file,
+        tcp_api,
         notifications,
         lock_warning,
         idle,

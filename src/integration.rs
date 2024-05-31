@@ -6,8 +6,9 @@ use color_eyre::Result;
 
 mod file_status;
 use file_status::FileStatus;
-pub(crate) mod dbus;
+use tracing::error;
 mod notification;
+pub(crate) mod tcp_api;
 
 #[derive(Debug, PartialEq, Eq)]
 enum State {
@@ -29,12 +30,12 @@ impl DurationUntil for Instant {
 pub struct Status {
     update: mpsc::Sender<State>,
     integrator: Option<JoinHandle<Result<()>>>,
-    dbus_maintain: Option<JoinHandle<Result<()>>>,
 }
 
 fn integrate(
     rx: &mpsc::Receiver<State>,
     mut file_status: Option<FileStatus>,
+    mut api_status: Option<tcp_api::Status>,
     state_notifications: bool,
     idle: Arc<Mutex<Instant>>,
     break_duration: Duration,
@@ -60,9 +61,11 @@ fn integrate(
         };
 
         let msg = format_status(&state, &idle, break_duration);
-        /* TODO: dbus api status update <dvdsk> */
-        if let Some(file_status) = &mut file_status {
-            file_status.update(&msg);
+        if let Some(status) = &mut file_status {
+            status.update(&msg);
+        }
+        if let Some(status) = &mut api_status {
+            status.update_msg(&msg);
         }
         notify_if_needed(
             &state,
@@ -123,6 +126,7 @@ fn format_status(state: &State, idle: &Arc<Mutex<Instant>>, break_duration: Dura
 impl Status {
     pub(crate) fn new(
         file_integration: bool,
+        tcp_api_integration: bool,
         notifications: bool,
         lock_warning_notification: Option<Duration>,
         idle: Arc<Mutex<Instant>>,
@@ -134,24 +138,37 @@ impl Status {
             None
         };
 
+        let api_status = if tcp_api_integration {
+            let status = tcp_api::Status::new(idle.clone());
+            {
+                let status = status.clone();
+                thread::spawn(|| {
+                    if let Err(e) = tcp_api::maintain(status) {
+                        error!("failed to maintain tcp API: {e}");
+                    }
+                });
+            }
+            Some(status)
+        } else {
+            None
+        };
+
         let (tx, rx) = mpsc::channel();
         let integrator = thread::spawn(move || {
             integrate(
                 &rx,
                 file_status,
+                api_status,
                 notifications,
                 idle,
                 break_duration,
                 lock_warning_notification,
             )
         });
-        let dbus_thread = thread::spawn(move || {
-            dbus::maintain_blocking()
-        });
+
         Ok(Self {
             update: tx,
             integrator: Some(integrator),
-            dbus_maintain: Some(dbus_thread),
         })
     }
 
