@@ -19,7 +19,7 @@ pub struct RunArgs {
     #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
     pub lock_warning: Option<Duration>,
     /// Enable the tcp api. Enables the `Status` command and other apps
-    /// to interface using the break-enforcer library. The API only 
+    /// to interface using the break-enforcer library. The API only
     /// accepts connections from the same system.
     #[arg(short, long)]
     pub tcp_api: bool,
@@ -35,6 +35,17 @@ pub struct RunArgs {
     pub notifications: bool,
 }
 
+#[allow(clippy::struct_field_names)]
+#[derive(Debug, Args, PartialEq, Eq)]
+pub struct StatusArgs {
+    /// Instead of printing the status once print it every `update` period
+    #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
+    pub update_period: Option<Duration>,
+    /// Output the status as json like this: {'msg': 'break in 5m'}
+    #[arg(short = 'j', long)]
+    pub use_json: bool,
+}
+
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum Commands {
     /// Periodically block devices in config (setup using wizard).
@@ -46,9 +57,18 @@ pub enum Commands {
     Install(#[command(flatten)] RunArgs),
     /// Removed the installed service and executable.
     Remove,
-    /// Prints a status line describing the time till the next break, 
+    /// Prints a status line describing the time till the next break,
     /// the time till the current break is over or that the user is idle.
-    Status,
+    Status(#[command(flatten)] StatusArgs),
+}
+
+impl Commands {
+    pub fn needs_sudo(&self) -> bool {
+        match self {
+            Commands::Status { .. } => false,
+            _ => true,
+        }
+    }
 }
 
 /// Disables specified input devices during breaks. The period between breaks,
