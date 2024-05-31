@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 #[allow(clippy::struct_field_names)]
-#[derive(Debug, Args)]
+#[derive(Debug, Args, PartialEq, Eq)]
 pub struct RunArgs {
     /// Period after which input will be disabled.  
     /// Note: run help command to see the duration format.
@@ -18,10 +18,15 @@ pub struct RunArgs {
     /// Note: run help command to see the duration format.
     #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
     pub lock_warning: Option<Duration>,
-    /// Enable the status file. It contains a string
-    /// describing the time till the next break or the
-    /// time the current break takes. The file is located
-    /// at `/var/run/break_enforcer` and is called `status.txt`
+    /// Enable the tcp api. Enables the `Status` command and other apps
+    /// to interface using the break-enforcer library. The API only 
+    /// accepts connections from the same system.
+    #[arg(short, long)]
+    pub tcp_api: bool,
+    /// Enable the status file. It contains a string describing the time till
+    /// the next break, the time till the current break is over or that the user
+    /// is idle. The file is located at `/var/run/break_enforcer` and is called
+    /// `status.txt`
     #[arg(short, long)]
     pub status_file: bool,
     /// verbose notifications. Sends notifications when:
@@ -30,7 +35,7 @@ pub struct RunArgs {
     pub notifications: bool,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum Commands {
     /// Periodically block devices in config (setup using wizard).
     Run(#[command(flatten)] RunArgs),
@@ -41,6 +46,9 @@ pub enum Commands {
     Install(#[command(flatten)] RunArgs),
     /// Removed the installed service and executable.
     Remove,
+    /// Prints a status line describing the time till the next break, 
+    /// the time till the current break is over or that the user is idle.
+    Status,
 }
 
 /// Disables specified input devices during breaks. The period between breaks,

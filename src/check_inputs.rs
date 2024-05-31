@@ -128,7 +128,6 @@ fn monitor_input(
         Err(e) if e.kind() == io::ErrorKind::NotFound => return,
         Err(e) => {
             // unexpected error, report to main thread
-            dbg!(&e);
             let err = Arc::new(e); // make cloneable
             let _ig_err = tx1.send(Err(err.clone()));
             let _ig_err = tx2.send(Err(err));
