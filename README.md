@@ -13,7 +13,7 @@ https://github.com/evavh/break-enforcer-s/releases/latest/0.2.0/break-enforcer-s
 
 or simply:
 ```
-curl -L https://github.com/evavh/break-enforcer-s/releases/download/0.2.0/break-enforcer-s_x86_64 --output break_enforcer
+curl -L https://github.com/evavh/break-enforcer-s/releases/latest/download/break-enforcer_x86_64 --output break_enforcer
 ```
 
 (as with any linux program you will still need to make it executable using `chmod
