@@ -18,3 +18,7 @@ curl -L https://github.com/evavh/break-enforcer-s/releases/download/0.2.0/break-
 
 (as with any linux program you will still need to make it executable using `chmod
 +x break_enforcer`)
+
+### Notification Sound/Licenses
+
+The notification sounds are by [UNIVERSFIELD](https://www.patreon.com/UNIVERSFIELD)
