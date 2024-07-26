@@ -2,6 +2,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use color_eyre::eyre::Context;
 use color_eyre::Result;
 
 mod file_status;
@@ -32,14 +33,19 @@ pub struct Status {
     integrator: Option<JoinHandle<Result<()>>>,
 }
 
+pub(crate) struct NotifyConfig {
+    pub(crate) lock_warning: Option<Duration>,
+    pub(crate) lock_warning_type: Vec<NotificationType>,
+    pub(crate) state_notifications: bool,
+}
+
 fn integrate(
     rx: &mpsc::Receiver<State>,
     mut file_status: Option<FileStatus>,
     mut api_status: Option<tcp_api::Status>,
-    state_notifications: bool,
     idle: Arc<Mutex<Instant>>,
     break_duration: Duration,
-    lock_warning_notification: Option<Duration>,
+    notify: NotifyConfig,
 ) -> Result<()> {
     let mut timeout = Duration::MAX;
     let mut state = State::Waiting;
@@ -67,38 +73,48 @@ fn integrate(
         if let Some(status) = &mut api_status {
             status.update_msg(&msg);
         }
-        notify_if_needed(
-            &state,
-            /* TODO: merge these bools into a struct called "notifyable events" <dvdsk> */
-            lock_warning_notification,
-            state_notifications,
-            state_changed,
-            msg,
-        );
+        notify_if_needed(&state, &notify, state_changed, msg);
     }
 }
 
-fn notify_if_needed(
-    state: &State,
-    lock_warning_notification: Option<Duration>,
-    state_notifications: bool,
-    state_changed: bool,
-    msg: String,
-) {
-    match *state {
-        State::Work { next_break } => {
-            if let Some(before_break) = lock_warning_notification {
-                if next_break.duration_until() < before_break {
-                    let msg = format!("locking in {}", fmt_dur(before_break));
-                    notification::notify_all_users(&msg);
+#[derive(Debug, Clone, clap::ValueEnum, Eq, PartialEq)]
+pub(crate) enum NotificationType {
+    System,
+    Audio,
+}
+
+impl NotificationType {
+    fn notify(&self, msg: &str) -> color_eyre::Result<()> {
+        match self {
+            NotificationType::System => {
+                notification::notify(msg).wrap_err("Could not send system notification")?
+            }
+            NotificationType::Audio => {
+                notification::beep().wrap_err("Could not play audio notification")?
+            }
+        }
+        Ok(())
+    }
+}
+
+fn notify_if_needed(state: &State, notify: &NotifyConfig, state_changed: bool, msg: String) {
+    if let State::Work { next_break } = *state {
+        if let Some(before_break) = notify.lock_warning {
+            if next_break.duration_until() < before_break {
+                let msg = format!("locking in {}", fmt_dur(before_break));
+                for notify_type in &notify.lock_warning_type {
+                    if let Err(report) = notify_type.notify(&msg) {
+                        error!("Failed to send lock warning: {report}")
+                    }
                 }
             }
         }
-        _ => (),
     }
 
-    if state_notifications && state_changed {
-        notification::notify_all_users(&msg);
+    if notify.state_notifications && state_changed {
+        if let Err(report) = notification::notify(&msg) {
+            error!("Failed to send state change notification: {report}")
+        }
     }
 }
 
@@ -127,8 +143,7 @@ impl Status {
     pub(crate) fn new(
         file_integration: bool,
         tcp_api_integration: bool,
-        notifications: bool,
-        lock_warning_notification: Option<Duration>,
+        notify: NotifyConfig,
         idle: Arc<Mutex<Instant>>,
         break_duration: Duration,
     ) -> Result<Self> {
@@ -155,15 +170,7 @@ impl Status {
 
         let (tx, rx) = mpsc::channel();
         let integrator = thread::spawn(move || {
-            integrate(
-                &rx,
-                file_status,
-                api_status,
-                notifications,
-                idle,
-                break_duration,
-                lock_warning_notification,
-            )
+            integrate(&rx, file_status, api_status, idle, break_duration, notify)
         });
 
         Ok(Self {
@@ -214,6 +221,6 @@ fn fmt_dur(dur: Duration) -> String {
     if seconds > 60 {
         fmt_mm_hh(dur)
     } else {
-        return format!("{seconds}s");
+        format!("{seconds}s")
     }
 }

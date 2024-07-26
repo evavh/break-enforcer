@@ -87,7 +87,7 @@ impl Api {
             .parse::<u64>()
             .map_err(|error| Error::IncorrectResponse { packet, error })?;
 
-        return Ok(Duration::from_secs(seconds_idle));
+        Ok(Duration::from_secs(seconds_idle))
     }
 
     pub fn status(&mut self) -> Result<String, Error> {
@@ -109,6 +109,6 @@ impl Api {
 
         let packet = &buf[..(n_read - 1)]; // leave off STOP_BYTE
         let status = String::from_utf8(packet.to_vec()).map_err(Error::CorruptResponse)?;
-        return Ok(status);
+        Ok(status)
     }
 }

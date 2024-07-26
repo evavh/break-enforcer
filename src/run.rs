@@ -6,9 +6,9 @@ use color_eyre::{Result, Section};
 
 use crate::check_inputs::{InactivityTracker, InputResult, TrackResult};
 use crate::cli::RunArgs;
-use crate::config;
 use crate::integration::Status;
 use crate::{check_inputs, watch_and_block};
+use crate::{config, integration};
 use std::{sync::mpsc::Receiver, thread};
 
 pub(crate) fn run(
@@ -16,6 +16,7 @@ pub(crate) fn run(
         work_duration,
         break_duration,
         lock_warning,
+        lock_warning_type,
         status_file,
         tcp_api,
         notifications,
@@ -37,17 +38,15 @@ pub(crate) fn run(
     let (recv_any_input, recv_any_input2) = check_inputs::watcher(new, to_block.clone());
 
     let mut inactivity_tracker = InactivityTracker::new(recv_any_input2, break_duration);
+    let notify_config = integration::NotifyConfig {
+        lock_warning,
+        lock_warning_type,
+        state_notifications: notifications,
+    };
 
     let idle = inactivity_tracker.idle_handle();
-    let mut status = Status::new(
-        status_file,
-        tcp_api,
-        notifications,
-        lock_warning,
-        idle,
-        break_duration,
-    )
-    .wrap_err("Could not setup status reporting")?;
+    let mut status = Status::new(status_file, tcp_api, notify_config, idle, break_duration)
+        .wrap_err("Could not setup status reporting")?;
 
     loop {
         status.set_waiting();

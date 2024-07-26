@@ -3,6 +3,8 @@ use std::num::ParseFloatError;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::integration::NotificationType;
+
 #[allow(clippy::struct_field_names)]
 #[derive(Debug, Args, PartialEq, Eq)]
 pub struct RunArgs {
@@ -18,6 +20,11 @@ pub struct RunArgs {
     /// Note: run help command to see the duration format.
     #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
     pub lock_warning: Option<Duration>,
+    /// Type of notification to get as lock warning. 
+    /// - For audio you need aplay installed.
+    /// - For system you need notify-send installed.
+    #[arg(short('a'), long, value_enum)]
+    pub lock_warning_type: Vec<NotificationType>,
     /// Enable the tcp api. Enables the `Status` command and other apps
     /// to interface using the break-enforcer library. The API only
     /// accepts connections from the same system.
@@ -64,10 +71,7 @@ pub enum Commands {
 
 impl Commands {
     pub fn needs_sudo(&self) -> bool {
-        match self {
-            Commands::Status { .. } => false,
-            _ => true,
-        }
+        !matches!(self, Commands::Status { .. })
     }
 }
 
