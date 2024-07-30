@@ -45,6 +45,10 @@ pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
         args.push("--lock-warning".to_string());
         args.push(fmt_dur(warn_duration));
     }
+    for warn_type in &run_args.lock_warning_type {
+        args.push("--lock-warning-type".to_string());
+        args.push(warn_type.to_string());
+    }
     if run_args.status_file {
         args.push("--status-file".to_string());
     }
