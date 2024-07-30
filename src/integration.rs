@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -81,6 +82,15 @@ fn integrate(
 pub(crate) enum NotificationType {
     System,
     Audio,
+}
+
+impl Display for NotificationType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NotificationType::System => f.write_str("system"),
+            NotificationType::Audio => f.write_str("audio"),
+        }
+    }
 }
 
 impl NotificationType {
