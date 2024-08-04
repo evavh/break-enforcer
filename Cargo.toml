@@ -18,7 +18,7 @@ serde = { version = "1", features = ["derive"] }
 sudo = "0.6"
 thiserror = "1"
 
-service-install = { version = "0.4" }
+service-install = { version = "0.4.3" }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 tokio = { version = "1.37", features = ["rt", "time", "macros"] }
