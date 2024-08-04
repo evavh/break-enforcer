@@ -1,6 +1,5 @@
 #![feature(thread_sleep_until)]
 #![feature(iter_intersperse)]
-#![feature(slice_flatten)]
 #![feature(io_error_more)]
 #![feature(iter_collect_into)]
 
