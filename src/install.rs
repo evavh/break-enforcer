@@ -56,7 +56,7 @@ pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
         args.push("--tcp-api".to_string());
     }
 
-    let name = env!("CARGO_CRATE_NAME").replace('_', "-");
+    let name = env!("CARGO_CRATE_NAME").replace("_", "-");
     let steps = install_system!()
         .current_exe()?
         .on_boot()
@@ -67,7 +67,7 @@ pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
         .prepare_install()
         .wrap_err("Could not set up installation")?;
 
-    tui::install::start(steps).wrap_err("Failed to run install wizard")?;
+    tui::install::start(steps, true).wrap_err("Failed to run install wizard")?;
     Ok(())
 }
 

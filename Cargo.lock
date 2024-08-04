@@ -684,9 +684,9 @@ dependencies = [
 
 [[package]]
 name = "service-install"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f047ec54d358ae080f9e06ba38aa80ec5767d2b7552e7ad385e9fb751e4571ac"
+checksum = "349114fde09e061213f976added84f0de1cf2a84a68e2a48bd48fe842ff01026"
 dependencies = [
  "dialoguer",
  "home",
