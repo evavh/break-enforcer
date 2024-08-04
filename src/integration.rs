@@ -37,6 +37,7 @@ pub struct Status {
 pub(crate) struct NotifyConfig {
     pub(crate) lock_warning: Option<Duration>,
     pub(crate) lock_warning_type: Vec<NotificationType>,
+    pub(crate) last_lock_warning: Instant,
     pub(crate) state_notifications: bool,
 }
 
@@ -46,7 +47,7 @@ fn integrate(
     mut api_status: Option<tcp_api::Status>,
     idle: Arc<Mutex<Instant>>,
     break_duration: Duration,
-    notify: NotifyConfig,
+    mut notify: NotifyConfig,
 ) -> Result<()> {
     let mut timeout = Duration::MAX;
     let mut state = State::Waiting;
@@ -74,7 +75,7 @@ fn integrate(
         if let Some(status) = &mut api_status {
             status.update_msg(&msg);
         }
-        notify_if_needed(&state, &notify, state_changed, msg);
+        notify_if_needed(&state, &mut notify, state_changed, msg);
     }
 }
 
@@ -107,14 +108,16 @@ impl NotificationType {
     }
 }
 
-fn notify_if_needed(state: &State, notify: &NotifyConfig, state_changed: bool, msg: String) {
+fn notify_if_needed(state: &State, notify: &mut NotifyConfig, state_changed: bool, msg: String) {
     if let State::Work { next_break } = *state {
         if let Some(before_break) = notify.lock_warning {
             if next_break.duration_until() < before_break {
-                let msg = format!("locking in {}", fmt_dur(before_break));
-                for notify_type in &notify.lock_warning_type {
-                    if let Err(report) = notify_type.notify(&msg) {
-                        error!("Failed to send lock warning: {report}")
+                if notify.last_lock_warning.elapsed() > before_break {
+                    let msg = format!("locking in {}", fmt_dur(before_break));
+                    for notify_type in &notify.lock_warning_type {
+                        if let Err(report) = notify_type.notify(&msg) {
+                            error!("Failed to send lock warning: {report}")
+                        }
                     }
                 }
             }
