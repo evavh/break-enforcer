@@ -57,7 +57,7 @@ impl fmt::Display for InputId {
             self.version.to_be_bytes(),
         ];
 
-        let base64 = general_purpose::URL_SAFE_NO_PAD.encode(data.flatten());
+        let base64 = general_purpose::URL_SAFE_NO_PAD.encode(data.as_flattened());
         f.write_str(base64.as_str())
     }
 }
