@@ -41,6 +41,7 @@ pub(crate) fn run(
     let notify_config = integration::NotifyConfig {
         lock_warning,
         lock_warning_type,
+        last_lock_warning: Instant::now(),
         state_notifications: notifications,
     };
 
