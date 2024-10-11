@@ -12,10 +12,18 @@ pub struct RunArgs {
     /// Note: run help command to see the duration format.
     #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
     pub work_duration: Duration,
-    /// Length of the breaks, after this period input is resumed.
+    /// Length of the (short) breaks, after this period input is resumed.
     /// Note: run help command to see the duration format.
     #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
     pub break_duration: Duration,
+    /// Length of the long breaks, after this period input is resumed.
+    /// Note: run help command to see the duration format.
+    #[arg(long, value_name = "duration", value_parser = parse_duration)]
+    pub long_break_duration: Option<Duration>,
+    /// Amount of total work time before next break will be a long break.
+    /// Note: run help command to see the duration format.
+    #[arg(long, value_name = "duration", value_parser = parse_duration)]
+    pub work_between_long_breaks: Option<Duration>,
     /// Optional takes a duration, if set sends a notification ahead of the break.
     /// Note: run help command to see the duration format.
     #[arg(short, long, value_name = "duration", value_parser = parse_duration)]

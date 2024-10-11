@@ -46,6 +46,14 @@ pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     args.push(fmt_dur(run_args.work_duration));
     args.push("--break-duration".to_string());
     args.push(fmt_dur(run_args.break_duration));
+    if let Some(long_break_duration) = run_args.long_break_duration {
+        args.push("--long-break-duration".to_string());
+        args.push(fmt_dur(long_break_duration));
+    }
+    if let Some(work_between_long_breaks) = run_args.work_between_long_breaks {
+        args.push("--work-between-long-breaks".to_string());
+        args.push(fmt_dur(work_between_long_breaks));
+    }
     if let Some(warn_duration) = run_args.lock_warning {
         args.push("--lock-warning".to_string());
         args.push(fmt_dur(warn_duration));

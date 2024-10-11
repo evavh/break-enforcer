@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use color_eyre::eyre::{eyre, Context};
 use color_eyre::{Result, Section};
@@ -11,7 +11,27 @@ use crate::integration::Status;
 use crate::{check_inputs, watch_and_block};
 use std::{sync::mpsc::Receiver, thread};
 
-pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
+pub(crate) fn run(
+    args: RunArgs,
+    config_path: Option<PathBuf>,
+) -> Result<()> {
+    // TODO: use args.<member> instead
+    let RunArgs {
+        work_duration,
+        break_duration,
+        long_break_duration,
+        work_between_long_breaks,
+        lock_warning: _,
+        ref lock_warning_type,
+        status_file: _,
+        tcp_api: _,
+        notifications: _,
+    } = args;
+    let short_break_duration = break_duration;
+    if let Some(long_break_duration) = long_break_duration {
+        assert!(long_break_duration > short_break_duration);
+    }
+
     let (online_devices, new) = watch_and_block::devices();
 
     let to_block = config::read(config_path)
@@ -24,7 +44,7 @@ pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
         .suggestion("Run the wizard")
         .suggestion("Maybe you have a (wrong) custom location set?");
     }
-    for warning_type in &args.lock_warning_type {
+    for warning_type in lock_warning_type {
         warning_type
             .check_dependency()
             .wrap_err("Can not provide configured warning/notification")?;
@@ -33,8 +53,9 @@ pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     let (recv_any_input, recv_any_input2) =
         check_inputs::watcher(new, to_block.clone());
 
+    let mut worked_since_long_break = Duration::from_secs(0);
     let mut inactivity_tracker =
-        InactivityTracker::new(recv_any_input2, args.break_duration);
+        InactivityTracker::new(recv_any_input2, short_break_duration);
 
     let idle = inactivity_tracker.idle_handle();
     let mut status = Status::new(&args, idle)
@@ -45,15 +66,23 @@ pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
 
         wait_for_user_activity(&recv_any_input)
             .wrap_err("Could not wait for activity")?;
-        status.set_working(Instant::now() + args.work_duration);
+        let work_start = Instant::now();
+        status.set_working(work_start + work_duration);
 
-        let idle = match inactivity_tracker.reset_or_timeout(args.work_duration)
+        let idle = match inactivity_tracker.reset_or_timeout(work_duration)
         {
             TrackResult::Error(e) => {
                 Err(e).wrap_err("Could not track inactivity")?
             }
-            TrackResult::ShouldReset => continue,
-            TrackResult::ShouldBreak { user_idle } => user_idle,
+            TrackResult::ShouldReset => {
+                worked_since_long_break +=
+                    work_start.elapsed() - short_break_duration;
+                continue;
+            }
+            TrackResult::ShouldBreak { user_idle } => {
+                worked_since_long_break += work_start.elapsed() - user_idle;
+                user_idle
+            }
         };
 
         let mut locks = Vec::new();
@@ -65,8 +94,23 @@ pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
             );
         }
 
-        status.set_break(Instant::now() + args.break_duration - idle);
-        thread::sleep(args.break_duration - idle);
+        let break_duration = match (long_break_duration, work_between_long_breaks) {
+            (Some(long_break_duration), Some(work_between_long_breaks))
+                // There is always some idle time before the break,
+                // so we add some margin
+                if worked_since_long_break + work_duration / 10
+                    >= work_between_long_breaks =>
+            {
+                worked_since_long_break = Duration::from_secs(0);
+                long_break_duration - idle
+            }
+            _ => {
+                short_break_duration - idle
+            }
+        };
+
+        status.set_break(Instant::now() + break_duration);
+        thread::sleep(break_duration);
 
         for lock in locks {
             lock.unlock()?;
