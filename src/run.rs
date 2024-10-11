@@ -25,8 +25,8 @@ pub(crate) fn run(
 ) -> Result<()> {
     let (online_devices, new) = watch_and_block::devices();
 
-    let to_block =
-        config::read(config_path).wrap_err("Could not read devices to block from config")?;
+    let to_block = config::read(config_path)
+        .wrap_err("Could not read devices to block from config")?;
     if to_block.is_empty() {
         return Err(eyre!(
             "No config, do not know what to block. Please run the wizard. \nExiting"
@@ -35,9 +35,11 @@ pub(crate) fn run(
         .suggestion("Run the wizard")
         .suggestion("Maybe you have a (wrong) custom location set?");
     }
-    let (recv_any_input, recv_any_input2) = check_inputs::watcher(new, to_block.clone());
+    let (recv_any_input, recv_any_input2) =
+        check_inputs::watcher(new, to_block.clone());
 
-    let mut inactivity_tracker = InactivityTracker::new(recv_any_input2, break_duration);
+    let mut inactivity_tracker =
+        InactivityTracker::new(recv_any_input2, break_duration);
     let notify_config = integration::NotifyConfig {
         lock_warning,
         lock_warning_type,
@@ -46,17 +48,21 @@ pub(crate) fn run(
     };
 
     let idle = inactivity_tracker.idle_handle();
-    let mut status = Status::new(status_file, tcp_api, notify_config, idle, break_duration)
-        .wrap_err("Could not setup status reporting")?;
+    let mut status =
+        Status::new(status_file, tcp_api, notify_config, idle, break_duration)
+            .wrap_err("Could not setup status reporting")?;
 
     loop {
         status.set_waiting();
 
-        wait_for_user_activity(&recv_any_input).wrap_err("Could not wait for activity")?;
+        wait_for_user_activity(&recv_any_input)
+            .wrap_err("Could not wait for activity")?;
         status.set_working(Instant::now() + work_duration);
 
         let idle = match inactivity_tracker.reset_or_timeout(work_duration) {
-            TrackResult::Error(e) => Err(e).wrap_err("Could not track inactivity")?,
+            TrackResult::Error(e) => {
+                Err(e).wrap_err("Could not track inactivity")?
+            }
             TrackResult::ShouldReset => continue,
             TrackResult::ShouldBreak { user_idle } => user_idle,
         };
@@ -79,7 +85,9 @@ pub(crate) fn run(
     }
 }
 
-fn wait_for_user_activity(recv_any_input: &Receiver<InputResult>) -> color_eyre::Result<()> {
+fn wait_for_user_activity(
+    recv_any_input: &Receiver<InputResult>,
+) -> color_eyre::Result<()> {
     loop {
         // clear old events
         match recv_any_input.try_recv() {

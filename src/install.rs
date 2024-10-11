@@ -67,7 +67,8 @@ pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
         .prepare_install()
         .wrap_err("Could not set up installation")?;
 
-    tui::install::start(steps, true).wrap_err("Failed to run install wizard")?;
+    tui::install::start(steps, true)
+        .wrap_err("Failed to run install wizard")?;
     Ok(())
 }
 

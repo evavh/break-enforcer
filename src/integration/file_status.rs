@@ -16,7 +16,9 @@ impl FileStatus {
         match std::fs::create_dir("/var/run/break_enforcer") {
             Ok(()) => (),
             Err(e) if e.kind() == ErrorKind::AlreadyExists => (),
-            err @ Err(_) => err.wrap_err("Could not create directory for integration file")?,
+            err @ Err(_) => {
+                err.wrap_err("Could not create directory for integration file")?
+            }
         }
         // let owner_write_rest_read = 0o422;
         let file = OpenOptions::new()

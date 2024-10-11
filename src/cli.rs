@@ -20,7 +20,7 @@ pub struct RunArgs {
     /// Note: run help command to see the duration format.
     #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
     pub lock_warning: Option<Duration>,
-    /// Type of notification to get as lock warning. 
+    /// Type of notification to get as lock warning.
     /// - For audio you need aplay installed.
     /// - For system you need notify-send installed.
     #[arg(short('a'), long, value_enum)]
@@ -144,11 +144,13 @@ pub(crate) fn parse_colon_duration(arg: &str) -> Result<f32, ParseError> {
         seconds += 60.0 * minutes;
         return Ok(seconds);
     };
-    seconds += 60.0 * minutes.parse::<f32>().map_err(|e| minute_err(e, minutes))?;
+    seconds +=
+        60.0 * minutes.parse::<f32>().map_err(|e| minute_err(e, minutes))?;
     if hours.is_empty() {
         return Ok(seconds);
     };
-    seconds += 60.0 * 60.0 * hours.parse::<f32>().map_err(|e| hour_err(e, hours))?;
+    seconds +=
+        60.0 * 60.0 * hours.parse::<f32>().map_err(|e| hour_err(e, hours))?;
     Ok(seconds)
 }
 

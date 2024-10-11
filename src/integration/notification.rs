@@ -15,7 +15,8 @@ fn all_users() -> Result<Vec<User>> {
         .output()
         .wrap_err("could not run loginctl")?
         .stdout;
-    let users = String::from_utf8(users).wrap_err("loginctl could not be parsed as utf8")?;
+    let users = String::from_utf8(users)
+        .wrap_err("loginctl could not be parsed as utf8")?;
     users
         .lines()
         .filter(|x| x.starts_with(' '))
@@ -36,11 +37,16 @@ fn all_users() -> Result<Vec<User>> {
 }
 
 pub(crate) fn beep() -> Result<()> {
-    let sound1 = include_bytes!("../../assets/new-notification-on-your-device-by-UNIVERSFIELD.wav");
+    let sound1 = include_bytes!(
+        "../../assets/new-notification-on-your-device-by-UNIVERSFIELD.wav"
+    );
     // let sound2 = include_bytes!("../../assets/notification-1-by-UNIVERSFIELD.wav");
 
-    for User { id, name } in all_users().wrap_err("Could not get logged in users")? {
-        let command = format!("sudo -u {name} XDG_RUNTIME_DIR=/run/user/{id} aplay");
+    for User { id, name } in
+        all_users().wrap_err("Could not get logged in users")?
+    {
+        let command =
+            format!("sudo -u {name} XDG_RUNTIME_DIR=/run/user/{id} aplay");
         let aplay = Command::new("sh")
             .arg("-c")
             .arg(command)
@@ -58,7 +64,9 @@ pub(crate) fn beep() -> Result<()> {
 }
 
 pub(crate) fn notify(text: &str) -> Result<()> {
-    for User { id, name } in all_users().wrap_err("Could not get logged in users")? {
+    for User { id, name } in
+        all_users().wrap_err("Could not get logged in users")?
+    {
         let command = format!("sudo -u {name} DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{id}/bus notify-send -t 5000 \"{text}\"");
         Command::new("sh")
             .arg("-c")

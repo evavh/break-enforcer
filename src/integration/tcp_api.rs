@@ -58,7 +58,9 @@ pub(crate) fn maintain(status: Status) -> Result<()> {
             Err(e) if e.kind() == ErrorKind::AddrInUse => {
                 continue;
             }
-            Err(other) => return Err(other).wrap_err("Could not start listening"),
+            Err(other) => {
+                return Err(other).wrap_err("Could not start listening")
+            }
         };
     }
 
@@ -127,7 +129,9 @@ fn handle_conn(conn: std::net::TcpStream, status: Status) -> Result<()> {
             }
             _ => {
                 debug!("packet: '{packet}'");
-                return Err(eyre!("got unexpected packet/api request, disconnecting"));
+                return Err(eyre!(
+                    "got unexpected packet/api request, disconnecting"
+                ));
             }
         }
     }

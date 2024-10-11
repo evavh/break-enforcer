@@ -2,7 +2,10 @@ use crate::cli::StatusArgs;
 use break_enforcer::Api;
 use color_eyre::eyre::WrapErr;
 
-fn format_status(status: Result<String, break_enforcer::Error>, use_json: bool) -> String {
+fn format_status(
+    status: Result<String, break_enforcer::Error>,
+    use_json: bool,
+) -> String {
     match (status, use_json) {
         (Ok(msg), true) => format!("{{\"msg\": \"{msg}\"}}"),
         (Ok(msg), false) => msg,
