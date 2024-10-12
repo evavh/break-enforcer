@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
 use color_eyre::eyre::{eyre, Context};
@@ -68,8 +69,26 @@ pub(crate) fn run(
     loop {
         status.set_waiting();
 
-        wait_for_user_activity(&recv_any_input)
-            .wrap_err("Could not wait for activity")?;
+        if worked_since_long_break > Duration::from_secs(0) {
+            if let Some(long_break_duration) = long_break_duration {
+                match wait_for_user_activity(
+                    &recv_any_input,
+                    long_break_duration - short_break_duration,
+                )
+                .wrap_err("Could not wait for activity")?
+                {
+                    IdleResult::Activity => (),
+                    IdleResult::Timeout => {
+                        worked_since_long_break = Duration::from_secs(0);
+                        continue;
+                    }
+                }
+            }
+        } else {
+            wait_for_user_activity(&recv_any_input, Duration::MAX)
+                .wrap_err("Could not wait for activity")?;
+        }
+
         let work_start = Instant::now();
         status.set_working(work_start + work_duration);
 
@@ -79,7 +98,7 @@ pub(crate) fn run(
             }
             TrackResult::ShouldReset => {
                 worked_since_long_break +=
-                    work_start.elapsed() - short_break_duration;
+                    work_start.elapsed().saturating_sub(short_break_duration);
                 continue;
             }
             TrackResult::ShouldBreak { user_idle } => {
@@ -121,9 +140,15 @@ pub(crate) fn run(
     }
 }
 
+enum IdleResult {
+    Activity,
+    Timeout,
+}
+
 fn wait_for_user_activity(
     recv_any_input: &Receiver<InputResult>,
-) -> color_eyre::Result<()> {
+    timeout: Duration,
+) -> color_eyre::Result<IdleResult> {
     loop {
         // clear old events
         match recv_any_input.try_recv() {
@@ -135,10 +160,11 @@ fn wait_for_user_activity(
 
     loop {
         #[allow(clippy::match_same_arms)]
-        match recv_any_input.recv() {
-            Err(_) => (), // device disconnected, ignore
+        match recv_any_input.recv_timeout(timeout) {
             Ok(Err(e)) => return Err(e).wrap_err("Error with device file"),
-            Ok(Ok(_)) => return Ok(()), // new event! stop blocking
+            Ok(Ok(_)) => return Ok(IdleResult::Activity), // new event! stop blocking
+            Err(RecvTimeoutError::Timeout) => return Ok(IdleResult::Timeout),
+            Err(_) => (), // device disconnected, ignore
         }
     }
 }
