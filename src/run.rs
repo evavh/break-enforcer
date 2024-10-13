@@ -67,10 +67,9 @@ pub(crate) fn run(
     .wrap_err("Could not setup status reporting")?;
 
     loop {
-        status.set_waiting();
-
         if worked_since_long_break > Duration::from_secs(0) {
             if let Some(long_break_duration) = long_break_duration {
+                status.set_waiting_long_reset(long_break_duration);
                 match wait_for_user_activity(
                     &recv_any_input,
                     long_break_duration - short_break_duration,
@@ -85,6 +84,7 @@ pub(crate) fn run(
                 }
             }
         } else {
+            status.set_waiting();
             wait_for_user_activity(&recv_any_input, Duration::MAX)
                 .wrap_err("Could not wait for activity")?;
         }

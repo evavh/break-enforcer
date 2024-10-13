@@ -15,6 +15,7 @@ pub(crate) mod tcp_api;
 #[derive(Debug, PartialEq, Eq)]
 enum State {
     Waiting,
+    WaitingLongReset { long_break_duration: Duration },
     Work { next_break: Instant },
     Break { next_work: Instant },
 }
@@ -65,7 +66,9 @@ fn integrate(
 
         timeout = match state {
             State::Waiting => Duration::MAX,
-            State::Work { .. } | State::Break { .. } => Duration::from_secs(1),
+            State::WaitingLongReset { .. }
+            | State::Work { .. }
+            | State::Break { .. } => Duration::from_secs(1),
         };
 
         let msg = format_status(&state, &idle, break_duration);
@@ -141,6 +144,14 @@ fn format_status(
 ) -> String {
     let msg = match *state {
         State::Waiting => String::from("-"),
+        State::WaitingLongReset {
+            long_break_duration,
+        } => {
+            let idle = idle.lock().unwrap().elapsed();
+            let break_dur = long_break_duration.saturating_sub(idle);
+            let break_dur = fmt_dur(break_dur);
+            format!("long reset in {}", break_dur)
+        }
         State::Work { next_break } => {
             let idle = idle.lock().unwrap().elapsed();
             if idle > Duration::from_secs(30) {
@@ -224,6 +235,15 @@ impl Status {
 
     pub(crate) fn set_waiting(&mut self) {
         self.send(State::Waiting);
+    }
+
+    pub(crate) fn set_waiting_long_reset(
+        &mut self,
+        long_break_duration: Duration,
+    ) {
+        self.send(State::WaitingLongReset {
+            long_break_duration,
+        });
     }
 
     pub(crate) fn set_working(&mut self, next_break: Instant) {
