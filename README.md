@@ -13,11 +13,11 @@ https://github.com/evavh/break-enforcer-s/releases/latest/0.2.0/break-enforcer-s
 
 or simply:
 ```
-curl -L https://github.com/evavh/break-enforcer-s/releases/latest/download/break-enforcer_x86_64 --output break_enforcer
+curl -L https://github.com/evavh/break-enforcer-s/releases/latest/download/break-enforcer_x86_64 --output break-enforcer
 ```
 
 (as with any linux program you will still need to make it executable using `chmod
-+x break_enforcer`)
++x break-enforcer`)
 
 ### Notification Sound/Licenses
 
