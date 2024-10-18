@@ -100,6 +100,7 @@ pub enum StateUpdate {
     BreakEnded,
     WentIdle,
     Reset,
+    LongReset,
 }
 
 #[derive(Debug, thiserror::Error)]
