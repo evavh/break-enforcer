@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use color_eyre::eyre::{eyre, Context};
 use color_eyre::{Result, Section};
+use tracing::trace;
 
 use crate::check_inputs::{InactivityTracker, InputResult, TrackResult};
 use crate::cli::RunArgs;
@@ -28,6 +29,10 @@ pub(crate) fn run(
         tcp_api: _,
         notifications: _,
     } = args;
+
+    trace!("Long break: {long_break_duration:?}");
+    trace!("Work between: {work_between_long_breaks:?}");
+
     let short_break_duration = break_duration;
     if let Some(long_break_duration) = long_break_duration {
         assert!(long_break_duration > short_break_duration);
@@ -74,6 +79,7 @@ pub(crate) fn run(
                 {
                     IdleResult::Activity => (),
                     IdleResult::Timeout => {
+                        trace!("Idle > long break, resetting total work time");
                         worked_since_long_break = Duration::from_secs(0);
                         continue;
                     }
@@ -113,6 +119,7 @@ pub(crate) fn run(
             );
         }
 
+        trace!("Worked since long break: {worked_since_long_break:?}");
         let break_duration = match (long_break_duration, work_between_long_breaks) {
             (Some(long_break_duration), Some(work_between_long_breaks))
                 // There is always some idle time before the break,
@@ -120,10 +127,12 @@ pub(crate) fn run(
                 if worked_since_long_break + work_duration / 10
                     >= work_between_long_breaks =>
             {
+                trace!("Starting long break, resetting total work time");
                 worked_since_long_break = Duration::from_secs(0);
                 long_break_duration - idle
             }
             _ => {
+                trace!("Starting short break");
                 short_break_duration - idle
             }
         };

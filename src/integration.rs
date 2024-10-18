@@ -28,6 +28,7 @@ impl State {
             State::Waiting => StateUpdate::Reset,
             State::Work { .. } => StateUpdate::BreakEnded,
             State::Break { .. } => StateUpdate::BreakStarted,
+            State::WaitingLongReset {..} => StateUpdate::LongReset,
         }
     }
 }
