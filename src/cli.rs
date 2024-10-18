@@ -12,15 +12,23 @@ pub struct RunArgs {
     /// Note: run help command to see the duration format.
     #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
     pub work_duration: Duration,
-    /// Length of the breaks, after this period input is resumed.
+    /// Length of the (short) breaks, after this period input is resumed.
     /// Note: run help command to see the duration format.
     #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
     pub break_duration: Duration,
+    /// Length of the long breaks, after this period input is resumed.
+    /// Note: run help command to see the duration format.
+    #[arg(long, value_name = "duration", value_parser = parse_duration)]
+    pub long_break_duration: Option<Duration>,
+    /// Amount of total work time before next break will be a long break.
+    /// Note: run help command to see the duration format.
+    #[arg(long, value_name = "duration", value_parser = parse_duration)]
+    pub work_between_long_breaks: Option<Duration>,
     /// Optional takes a duration, if set sends a notification ahead of the break.
     /// Note: run help command to see the duration format.
     #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
     pub lock_warning: Option<Duration>,
-    /// Type of notification to get as lock warning. 
+    /// Type of notification to get as lock warning.
     /// - For audio you need aplay installed.
     /// - For system you need notify-send installed.
     #[arg(short('a'), long, value_enum)]
@@ -144,11 +152,13 @@ pub(crate) fn parse_colon_duration(arg: &str) -> Result<f32, ParseError> {
         seconds += 60.0 * minutes;
         return Ok(seconds);
     };
-    seconds += 60.0 * minutes.parse::<f32>().map_err(|e| minute_err(e, minutes))?;
+    seconds +=
+        60.0 * minutes.parse::<f32>().map_err(|e| minute_err(e, minutes))?;
     if hours.is_empty() {
         return Ok(seconds);
     };
-    seconds += 60.0 * 60.0 * hours.parse::<f32>().map_err(|e| hour_err(e, hours))?;
+    seconds +=
+        60.0 * 60.0 * hours.parse::<f32>().map_err(|e| hour_err(e, hours))?;
     Ok(seconds)
 }
 

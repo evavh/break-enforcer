@@ -15,6 +15,7 @@ pub(crate) mod tcp_api;
 #[derive(Debug, PartialEq, Eq)]
 enum State {
     Waiting,
+    WaitingLongReset { long_break_duration: Duration },
     Work { next_break: Instant },
     Break { next_work: Instant },
 }
@@ -65,7 +66,9 @@ fn integrate(
 
         timeout = match state {
             State::Waiting => Duration::MAX,
-            State::Work { .. } | State::Break { .. } => Duration::from_secs(1),
+            State::WaitingLongReset { .. }
+            | State::Work { .. }
+            | State::Break { .. } => Duration::from_secs(1),
         };
 
         let msg = format_status(&state, &idle, break_duration);
@@ -97,18 +100,21 @@ impl Display for NotificationType {
 impl NotificationType {
     fn notify(&self, msg: &str) -> color_eyre::Result<()> {
         match self {
-            NotificationType::System => {
-                notification::notify(msg).wrap_err("Could not send system notification")?
-            }
-            NotificationType::Audio => {
-                notification::beep().wrap_err("Could not play audio notification")?
-            }
+            NotificationType::System => notification::notify(msg)
+                .wrap_err("Could not send system notification")?,
+            NotificationType::Audio => notification::beep()
+                .wrap_err("Could not play audio notification")?,
         }
         Ok(())
     }
 }
 
-fn notify_if_needed(state: &State, notify: &mut NotifyConfig, state_changed: bool, msg: String) {
+fn notify_if_needed(
+    state: &State,
+    notify: &mut NotifyConfig,
+    state_changed: bool,
+    msg: String,
+) {
     if let State::Work { next_break } = *state {
         if let Some(before_break) = notify.lock_warning {
             if next_break.duration_until() < before_break {
@@ -131,9 +137,21 @@ fn notify_if_needed(state: &State, notify: &mut NotifyConfig, state_changed: boo
     }
 }
 
-fn format_status(state: &State, idle: &Arc<Mutex<Instant>>, break_duration: Duration) -> String {
+fn format_status(
+    state: &State,
+    idle: &Arc<Mutex<Instant>>,
+    break_duration: Duration,
+) -> String {
     let msg = match *state {
         State::Waiting => String::from("-"),
+        State::WaitingLongReset {
+            long_break_duration,
+        } => {
+            let idle = idle.lock().unwrap().elapsed();
+            let break_dur = long_break_duration.saturating_sub(idle);
+            let break_dur = fmt_dur(break_dur);
+            format!("long reset in {}", break_dur)
+        }
         State::Work { next_break } => {
             let idle = idle.lock().unwrap().elapsed();
             if idle > Duration::from_secs(30) {
@@ -183,7 +201,14 @@ impl Status {
 
         let (tx, rx) = mpsc::channel();
         let integrator = thread::spawn(move || {
-            integrate(&rx, file_status, api_status, idle, break_duration, notify)
+            integrate(
+                &rx,
+                file_status,
+                api_status,
+                idle,
+                break_duration,
+                notify,
+            )
         });
 
         Ok(Self {
@@ -202,12 +227,23 @@ impl Status {
                 .expect("can only be called once")
                 .join()
                 .expect("The integrator thread panicked")
-                .expect("The integrator thread returned an error, it should not");
+                .expect(
+                    "The integrator thread returned an error, it should not",
+                );
         }
     }
 
     pub(crate) fn set_waiting(&mut self) {
         self.send(State::Waiting);
+    }
+
+    pub(crate) fn set_waiting_long_reset(
+        &mut self,
+        long_break_duration: Duration,
+    ) {
+        self.send(State::WaitingLongReset {
+            long_break_duration,
+        });
     }
 
     pub(crate) fn set_working(&mut self, next_break: Instant) {

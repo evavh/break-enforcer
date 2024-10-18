@@ -5,8 +5,8 @@ use std::time::Duration;
 use tracing::debug;
 
 mod tcp_api_config;
-use tcp_api_config::STOP_BYTE;
 use tcp_api_config::PORTS;
+use tcp_api_config::STOP_BYTE;
 
 pub struct Api {
     reader: BufReader<TcpStream>,
@@ -40,7 +40,9 @@ impl Api {
             let addr = SocketAddr::from(([127, 0, 0, 1], port));
             match TcpStream::connect(addr) {
                 Ok(c) => {
-                    debug!("connected to break-enforcer service on port: {port}");
+                    debug!(
+                        "connected to break-enforcer service on port: {port}"
+                    );
                     conn = Some(c);
                     break;
                 }
@@ -80,7 +82,8 @@ impl Api {
         }
 
         let packet = &buf[..(n_read - 1)]; // leave off STOP_BYTE
-        let packet = String::from_utf8(packet.to_vec()).map_err(Error::CorruptResponse)?;
+        let packet = String::from_utf8(packet.to_vec())
+            .map_err(Error::CorruptResponse)?;
 
         let seconds_idle = packet
             .as_str()
@@ -108,7 +111,8 @@ impl Api {
         }
 
         let packet = &buf[..(n_read - 1)]; // leave off STOP_BYTE
-        let status = String::from_utf8(packet.to_vec()).map_err(Error::CorruptResponse)?;
+        let status = String::from_utf8(packet.to_vec())
+            .map_err(Error::CorruptResponse)?;
         Ok(status)
     }
 }

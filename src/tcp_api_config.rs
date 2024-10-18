@@ -6,4 +6,5 @@ pub(crate) const STOP_BYTE: u8 = 0;
 // first 4 are taken with care from
 // https://en.wikipedia.org/wiki/List_of_TCP_and_UDP_port_numbers
 // the rest are randomly picked
-pub(crate) const PORTS: [u16; 7] = [49_151, 28_769, 19_788, 62_738, 34_342, 12_846, 8_797];
+pub(crate) const PORTS: [u16; 7] =
+    [49_151, 28_769, 19_788, 62_738, 34_342, 12_846, 8_797];
