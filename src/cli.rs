@@ -111,7 +111,7 @@ pub enum ParseError {
     Minute(#[source] ParseFloatError, String),
     #[error("Could not parse the hours, input: {1}")]
     Hour(#[source] ParseFloatError, String),
-    #[error("Durations need a suffix or one `:`")]
+    #[error("Durations need a suffix like s, m or h or one seperator `:`")]
     NoColonOrUnit(String),
 }
 
