@@ -111,7 +111,7 @@ impl NotificationType {
     pub(crate) fn check_dependency(&self) -> color_eyre::Result<()> {
         match self {
             NotificationType::System => {
-                notification::nofity_available().wrap_err("dependency missing for notification")?
+                notification::notify_available().wrap_err("dependency missing for notification")?
             }
             NotificationType::Audio => {
                 notification::beep_available().wrap_err("dependency missing for beep")?
