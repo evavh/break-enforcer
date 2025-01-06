@@ -20,7 +20,7 @@ pub struct RunArgs {
     /// Note: run help command to see the duration format.
     #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
     pub lock_warning: Option<Duration>,
-    /// Type of notification to get as lock warning. 
+    /// Type of notification to get as lock warning.
     /// - For audio you need aplay installed.
     /// - For system you need notify-send installed.
     #[arg(short('a'), long, value_enum)]
@@ -105,12 +105,12 @@ pub struct Cli {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
-    #[error("Could not parse the seconds, input: {1}, error: {0}")]
-    Second(ParseFloatError, String),
-    #[error("Could not parse the minutes, input: {1}, error: {0}")]
-    Minute(ParseFloatError, String),
-    #[error("Could not parse the hours, input: {1}, error: {0}")]
-    Hour(ParseFloatError, String),
+    #[error("Could not parse the seconds, input: {1}")]
+    Second(#[source] ParseFloatError, String),
+    #[error("Could not parse the minutes, input: {1}")]
+    Minute(#[source] ParseFloatError, String),
+    #[error("Could not parse the hours, input: {1}")]
+    Hour(#[source] ParseFloatError, String),
     #[error("Durations need a suffix or one `:`")]
     NoColonOrUnit(String),
 }

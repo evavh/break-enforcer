@@ -5,8 +5,8 @@ use std::time::Duration;
 use tracing::debug;
 
 mod tcp_api_config;
-use tcp_api_config::STOP_BYTE;
 use tcp_api_config::PORTS;
+use tcp_api_config::STOP_BYTE;
 
 pub struct Api {
     reader: BufReader<TcpStream>,
@@ -17,17 +17,18 @@ pub struct Api {
 pub enum Error {
     #[error("Could not connect on any of the ports the api server listens on")]
     CouldNotConnect,
-    #[error("Error writing request: {0}")]
-    WritingRequest(std::io::Error),
-    #[error("Error while reading response {0}")]
-    ReadingResponse(std::io::Error),
+    #[error("Error writing request")]
+    WritingRequest(#[source] std::io::Error),
+    #[error("Error while reading response")]
+    ReadingResponse(#[source] std::io::Error),
     #[error("The response is not valid utf8")]
-    CorruptResponse(std::string::FromUtf8Error),
+    CorruptResponse(#[source] std::string::FromUtf8Error),
     #[error("The api server closed the connection, did it halt?")]
     ConnectionClosed,
-    #[error("The response should be a number, could not be parsed as one. Parse error: {error}, response: {packet}")]
+    #[error("The response should be a number, could not be parsed as one, response: {packet}")]
     IncorrectResponse {
         packet: String,
+        #[source]
         error: std::num::ParseIntError,
     },
 }

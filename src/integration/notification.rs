@@ -100,7 +100,7 @@ pub(crate) fn notify(text: &str) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn nofity_available() -> color_eyre::Result<()> {
+pub(crate) fn notify_available() -> color_eyre::Result<()> {
     command_available(
         "notify-send",
         "notify-send ",
