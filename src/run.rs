@@ -35,12 +35,18 @@ pub(crate) fn run(
         .suggestion("Run the wizard")
         .suggestion("Maybe you have a (wrong) custom location set?");
     }
+    for warning_type in &lock_warning_type {
+        warning_type
+            .check_dependency()
+            .wrap_err("Can not provide configured warning/notification")?;
+    }
+
     let (recv_any_input, recv_any_input2) = check_inputs::watcher(new, to_block.clone());
 
     let mut inactivity_tracker = InactivityTracker::new(recv_any_input2, break_duration);
     let notify_config = integration::NotifyConfig {
         lock_warning,
-        lock_warning_type,
+        lock_notify_type: lock_warning_type,
         last_lock_warning: Instant::now(),
         state_notifications: notifications,
     };
