@@ -94,7 +94,7 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
     /// Path to create/read/update list of devices to/from
-    /// Default: /etc/{crate name}.ron
+    /// Default: /etc/break-enforcer.ron
     #[arg(short, long)]
     #[arg(verbatim_doc_comment)]
     pub config_path: Option<PathBuf>,

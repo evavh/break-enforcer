@@ -37,7 +37,6 @@ fn all_users() -> Result<Vec<User>> {
 
 pub(crate) fn beep() -> Result<()> {
     let sound1 = include_bytes!("../../assets/new-notification-on-your-device-by-UNIVERSFIELD.wav");
-    // let sound2 = include_bytes!("../../assets/notification-1-by-UNIVERSFIELD.wav");
 
     for User { id, name } in all_users().wrap_err("Could not get logged in users")? {
         let command = format!("sudo -u {name} XDG_RUNTIME_DIR=/run/user/{id} aplay");
