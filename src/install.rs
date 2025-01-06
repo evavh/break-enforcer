@@ -65,7 +65,7 @@ pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     let steps = install_system!()
         .current_exe()?
         .on_boot()
-        .name(name)
+        .service_name(name)
         .description("Disables input during breaks")
         .args(args)
         .overwrite_existing(true)
@@ -78,7 +78,7 @@ pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
 
 pub fn tear_down() -> Result<()> {
     let steps = install_system!()
-        .name(env!("CARGO_CRATE_NAME"))
+        .service_name(env!("CARGO_CRATE_NAME"))
         .prepare_remove()
         .wrap_err("Could not remove installation")?;
 
