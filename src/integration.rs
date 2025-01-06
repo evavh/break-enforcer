@@ -35,8 +35,9 @@ pub struct Status {
 }
 
 pub(crate) struct NotifyConfig {
+    /// warn if this close to locking
     pub(crate) lock_warning: Option<Duration>,
-    pub(crate) lock_warning_type: Vec<NotificationType>,
+    pub(crate) lock_notify_type: Vec<NotificationType>,
     pub(crate) last_lock_warning: Instant,
     pub(crate) state_notifications: bool,
 }
@@ -106,15 +107,29 @@ impl NotificationType {
         }
         Ok(())
     }
+
+    pub(crate) fn check_dependency(&self) -> color_eyre::Result<()> {
+        match self {
+            NotificationType::System => {
+                notification::nofity_available().wrap_err("dependency missing for notification")?
+            }
+            NotificationType::Audio => {
+                notification::beep_available().wrap_err("dependency missing for beep")?
+            }
+        }
+        Ok(())
+    }
 }
 
 fn notify_if_needed(state: &State, notify: &mut NotifyConfig, state_changed: bool, msg: String) {
+    const MARGIN: Duration = Duration::from_secs(1);
     if let State::Work { next_break } = *state {
-        if let Some(before_break) = notify.lock_warning {
-            if next_break.duration_until() < before_break {
-                if notify.last_lock_warning.elapsed() > before_break {
-                    let msg = format!("locking in {}", fmt_dur(before_break));
-                    for notify_type in &notify.lock_warning_type {
+        if let Some(warn_at) = notify.lock_warning {
+            if next_break.duration_until() < warn_at {
+                if notify.last_lock_warning.elapsed() + MARGIN > warn_at {
+                    let msg = format!("locking in {}", fmt_dur(warn_at));
+                    notify.last_lock_warning = Instant::now();
+                    for notify_type in &notify.lock_notify_type {
                         if let Err(report) = notify_type.notify(&msg) {
                             error!("Failed to send lock warning: {report}")
                         }

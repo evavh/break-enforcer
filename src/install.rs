@@ -30,6 +30,11 @@ pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
             "No devices set up. The service would do nothing. Please run the wizard"
         ));
     }
+    for warning_type in &run_args.lock_warning_type {
+        warning_type
+            .check_dependency()
+            .wrap_err("Can not provide configured warning/notification")?;
+    }
 
     let mut args = Vec::new();
     if let Some(config_path) = config_path {
