@@ -102,7 +102,7 @@ impl NotificationType {
                 notification::notify(msg).wrap_err("Could not send system notification")?
             }
             NotificationType::Audio => {
-                notification::beep().wrap_err("Could not play audio notification")?
+                notification::beep_all_users().wrap_err("Could not play audio notification")?
             }
         }
         Ok(())
@@ -126,7 +126,7 @@ fn notify_if_needed(state: &State, notify: &mut NotifyConfig, state_changed: boo
     if let State::Work { next_break } = *state {
         if let Some(warn_at) = notify.lock_warning {
             if next_break.duration_until() < warn_at {
-                if notify.last_lock_warning.elapsed() + MARGIN > warn_at {
+                if notify.last_lock_warning.elapsed() > warn_at + MARGIN {
                     let msg = format!("locking in {}", fmt_dur(warn_at));
                     notify.last_lock_warning = Instant::now();
                     for notify_type in &notify.lock_notify_type {

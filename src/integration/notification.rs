@@ -35,22 +35,31 @@ fn all_users() -> Result<Vec<User>> {
         .collect()
 }
 
-pub(crate) fn beep() -> Result<()> {
-    let sound1 = include_bytes!("../../assets/new-notification-on-your-device-by-UNIVERSFIELD.wav");
-
-    for User { id, name } in all_users().wrap_err("Could not get logged in users")? {
+pub(crate) fn beep_all_users() -> Result<()> {
+    fn beep(name: String, id: String) -> Result<()> {
+        let sound1 = include_bytes!("../../assets/new-notification-on-your-device-by-UNIVERSFIELD.wav");
         let command = format!("sudo -u {name} XDG_RUNTIME_DIR=/run/user/{id} aplay");
-        let aplay = Command::new("sh")
+        let mut aplay = Command::new("sh")
             .arg("-c")
             .arg(command)
             .stdin(Stdio::piped())
             .spawn()
             .wrap_err("Could not spawn shell")
             .with_note(|| format!("as user: {id}:{name}"))?;
-        let mut stdin = aplay.stdin.expect("is set to piped");
+        let stdin = aplay.stdin.as_mut().expect("is set to piped");
         stdin
             .write_all(sound1)
             .wrap_err("Could not pipe to aplay")?;
+        aplay.wait().wrap_err("Could not wait for command to end")?;
+        Ok(())
+    }
+
+    for User { id, name } in all_users().wrap_err("Could not get logged in users")? {
+        let _ = std::thread::spawn(|| {
+            if let Err(report) = beep(name, id).wrap_err("beep failed") {
+                eprintln!("{report:?}");
+            }
+        });
     }
 
     Ok(())
