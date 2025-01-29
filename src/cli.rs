@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::integration::NotificationType;
 
 #[allow(clippy::struct_field_names)]
-#[derive(Debug, Args, PartialEq, Eq)]
+#[derive(Debug, Clone, Args, PartialEq, Eq)]
 pub struct RunArgs {
     /// Period after which input will be disabled.  
     /// Note: run help command to see the duration format.
@@ -25,7 +25,7 @@ pub struct RunArgs {
     /// - For system you need notify-send installed.
     #[arg(short('a'), long, value_enum)]
     pub lock_warning_type: Vec<NotificationType>,
-    /// Enable the tcp api. Enables the `Status` command and other apps
+    /// Enable the TCP API. Enables the `Status` command and other apps
     /// to interface using the break-enforcer library. The API only
     /// accepts connections from the same system.
     #[arg(short, long)]

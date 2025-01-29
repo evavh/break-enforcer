@@ -1,20 +1,23 @@
 /// Simple ascii protocol over tcp, uses 0 bytes as packet framing
 use std::io::{BufReader, ErrorKind, Write};
 use std::net::{SocketAddr, TcpListener};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
+use break_enforcer::StateUpdate;
 use color_eyre::eyre::{eyre, Context};
 use color_eyre::{Result, Section};
 use tracing::{debug, warn};
 
+use crate::cli::RunArgs;
 use crate::tcp_api_config::{PORTS, STOP_BYTE};
 
 #[derive(Debug, Clone)]
 pub(crate) struct Status {
     msg: Arc<Mutex<String>>,
     idle: Arc<Mutex<Instant>>,
+    subscribers: Arc<Mutex<Vec<mpsc::Sender<StateUpdate>>>>,
 }
 
 impl Status {
@@ -22,6 +25,7 @@ impl Status {
         Self {
             msg: Arc::new(Mutex::new(String::new())),
             idle,
+            subscribers: Arc::new(Mutex::new(Vec::new())),
         }
     }
     pub fn msg(&self) -> String {
@@ -43,9 +47,37 @@ impl Status {
         let mut msg = self.msg.lock().expect("Self::msg can not panic");
         *msg = new_status.to_string();
     }
+
+    pub(crate) fn update_subscribers(&self, just_enterd: &super::State) {
+        let update = just_enterd.state_update();
+        for sub in self
+            .subscribers
+            .lock()
+            .expect("subscribe() should never panic")
+            .iter()
+        {
+            // subscribers unsubscribing is not a reason to panic
+            let _ = sub.send(update.clone());
+        }
+    }
+
+    fn subscribe(&self, args: &RunArgs) -> mpsc::Receiver<StateUpdate> {
+        let (tx, rx) = mpsc::channel();
+        tx.send(StateUpdate::ParameterChange {
+            break_duration: args.break_duration,
+            work_duration: args.work_duration,
+        })
+        .expect("rx still in scope");
+        self.subscribers
+            .lock()
+            .expect("update_subscribers should never panic")
+            .push(tx);
+        rx
+    }
 }
 
-pub(crate) fn maintain(status: Status) -> Result<()> {
+pub(crate) fn maintain(status: Status, args: RunArgs) -> Result<()> {
+    let args = Arc::new(args);
     let mut listener = None;
 
     for port in PORTS {
@@ -79,8 +111,9 @@ pub(crate) fn maintain(status: Status) -> Result<()> {
         };
 
         let status = status.clone();
+        let args = args.clone();
         thread::spawn(|| {
-            if let Err(error) = handle_conn(conn, status) {
+            if let Err(error) = handle_conn(conn, status, args) {
                 warn!("ran into error handling API client: {error}");
             }
         });
@@ -89,7 +122,7 @@ pub(crate) fn maintain(status: Status) -> Result<()> {
     Ok(())
 }
 
-fn handle_conn(conn: std::net::TcpStream, status: Status) -> Result<()> {
+fn handle_conn(conn: std::net::TcpStream, status: Status, args: Arc<RunArgs>) -> Result<()> {
     use std::io::BufRead;
 
     let mut writer = conn.try_clone().expect("tcp stream clone failed");
@@ -125,10 +158,34 @@ fn handle_conn(conn: std::net::TcpStream, status: Status) -> Result<()> {
                     .write_all(&[STOP_BYTE])
                     .wrap_err("Could not write active or not to tcpstream")?;
             }
+            "subscribe_to_state_changes" => handle_subscriber(&status, &args, &mut writer)?,
             _ => {
                 debug!("packet: '{packet}'");
                 return Err(eyre!("got unexpected packet/api request, disconnecting"));
             }
         }
+    }
+}
+
+fn handle_subscriber(
+    status: &Status,
+    args: &RunArgs,
+    writer: &mut std::net::TcpStream,
+) -> Result<(), color_eyre::eyre::Error> {
+    let sub = status.subscribe(args);
+    loop {
+        let update = sub
+            .recv()
+            .expect("Should only be removed after we drop it here");
+        writer
+            .write_all(
+                ron::to_string(&update)
+                    .expect("serializing should not fail")
+                    .as_bytes(),
+            )
+            .wrap_err("Could not write update to tcpstream")?;
+        writer
+            .write_all(&[STOP_BYTE])
+            .wrap_err("Could not write update to tcpstream")?;
     }
 }
