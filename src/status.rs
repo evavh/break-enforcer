@@ -1,5 +1,5 @@
 use crate::cli::StatusArgs;
-use break_enforcer::Api;
+use break_enforcer::ReconnectingApi;
 use color_eyre::eyre::WrapErr;
 use color_eyre::Section;
 
@@ -9,40 +9,6 @@ fn format_status(status: Result<String, break_enforcer::Error>, use_json: bool) 
         (Ok(msg), false) => msg,
         (Err(err), true) => format!("{{\"msg\": \"{err}\"}}"),
         (Err(err), false) => err.to_string(),
-    }
-}
-
-#[derive(Default)]
-enum ReconnectingApi {
-    #[default]
-    Disconnected,
-    Connected(Api),
-}
-
-impl ReconnectingApi {
-    fn new() -> Self {
-        ReconnectingApi::Disconnected
-    }
-
-    fn status(&mut self) -> Result<String, break_enforcer::Error> {
-        let placeholder = ReconnectingApi::default();
-        let owned_self = core::mem::replace(self, placeholder);
-
-        let mut api = match owned_self {
-            ReconnectingApi::Disconnected => break_enforcer::Api::new()?,
-            ReconnectingApi::Connected(api) => api,
-        };
-
-        match api.status() {
-            Ok(status) => {
-                *self = ReconnectingApi::Connected(api);
-                Ok(status)
-            }
-            Err(e) => {
-                *self = ReconnectingApi::Disconnected;
-                Err(e)
-            }
-        }
     }
 }
 

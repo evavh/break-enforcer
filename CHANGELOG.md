@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Exit with error when runtime dependencies are or will not be met (install)
 - adds suggestion when status call not working
+- adds subscribe to API, sends initial parameters and when breaks start or end
 
 ## [0.3.0] - 2024-04-21
 

@@ -3,20 +3,32 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use break_enforcer::StateUpdate;
 use color_eyre::eyre::Context;
 use color_eyre::Result;
 
 mod file_status;
 use file_status::FileStatus;
 use tracing::error;
+
+use crate::cli::RunArgs;
 mod notification;
 pub(crate) mod tcp_api;
 
-#[derive(Debug, PartialEq, Eq)]
-enum State {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum State {
     Waiting,
     Work { next_break: Instant },
     Break { next_work: Instant },
+}
+impl State {
+    fn state_update(&self) -> StateUpdate {
+        match self {
+            State::Waiting => StateUpdate::Reset,
+            State::Work { .. } => StateUpdate::BreakEnded,
+            State::Break { .. } => StateUpdate::BreakStarted,
+        }
+    }
 }
 
 trait DurationUntil {
@@ -75,6 +87,9 @@ fn integrate(
         }
         if let Some(status) = &mut api_status {
             status.update_msg(&msg);
+            if state_changed {
+                status.update_subscribers(&state);
+            }
         }
         notify_if_needed(&state, &mut notify, state_changed, msg);
     }
@@ -168,25 +183,20 @@ fn format_status(state: &State, idle: &Arc<Mutex<Instant>>, break_duration: Dura
 }
 
 impl Status {
-    pub(crate) fn new(
-        file_integration: bool,
-        tcp_api_integration: bool,
-        notify: NotifyConfig,
-        idle: Arc<Mutex<Instant>>,
-        break_duration: Duration,
-    ) -> Result<Self> {
-        let file_status = if file_integration {
+    pub(crate) fn new(args: &RunArgs, idle: Arc<Mutex<Instant>>) -> Result<Self> {
+        let file_status = if args.status_file {
             Some(FileStatus::new()?)
         } else {
             None
         };
 
-        let api_status = if tcp_api_integration {
+        let api_status = if args.tcp_api {
             let status = tcp_api::Status::new(idle.clone());
             {
                 let status = status.clone();
+                let args = args.clone();
                 thread::spawn(|| {
-                    if let Err(e) = tcp_api::maintain(status) {
+                    if let Err(e) = tcp_api::maintain(status, args) {
                         error!("failed to maintain tcp API: {e}");
                     }
                 });
@@ -197,8 +207,24 @@ impl Status {
         };
 
         let (tx, rx) = mpsc::channel();
+
+        let notify_config = NotifyConfig {
+            lock_warning: args.lock_warning,
+            lock_notify_type: args.lock_warning_type.clone(),
+            last_lock_warning: Instant::now(),
+            state_notifications: args.notifications,
+        };
+
+        let break_duration = args.break_duration;
         let integrator = thread::spawn(move || {
-            integrate(&rx, file_status, api_status, idle, break_duration, notify)
+            integrate(
+                &rx,
+                file_status,
+                api_status,
+                idle,
+                break_duration,
+                notify_config,
+            )
         });
 
         Ok(Self {

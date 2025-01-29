@@ -8,21 +8,10 @@ use crate::check_inputs::{InactivityTracker, InputResult, TrackResult};
 use crate::cli::RunArgs;
 use crate::integration::Status;
 use crate::{check_inputs, watch_and_block};
-use crate::{config, integration};
+use crate::config;
 use std::{sync::mpsc::Receiver, thread};
 
-pub(crate) fn run(
-    RunArgs {
-        work_duration,
-        break_duration,
-        lock_warning,
-        lock_warning_type,
-        status_file,
-        tcp_api,
-        notifications,
-    }: RunArgs,
-    config_path: Option<PathBuf>,
-) -> Result<()> {
+pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     let (online_devices, new) = watch_and_block::devices();
 
     let to_block =
@@ -35,7 +24,7 @@ pub(crate) fn run(
         .suggestion("Run the wizard")
         .suggestion("Maybe you have a (wrong) custom location set?");
     }
-    for warning_type in &lock_warning_type {
+    for warning_type in &args.lock_warning_type {
         warning_type
             .check_dependency()
             .wrap_err("Can not provide configured warning/notification")?;
@@ -43,25 +32,18 @@ pub(crate) fn run(
 
     let (recv_any_input, recv_any_input2) = check_inputs::watcher(new, to_block.clone());
 
-    let mut inactivity_tracker = InactivityTracker::new(recv_any_input2, break_duration);
-    let notify_config = integration::NotifyConfig {
-        lock_warning,
-        lock_notify_type: lock_warning_type,
-        last_lock_warning: Instant::now(),
-        state_notifications: notifications,
-    };
+    let mut inactivity_tracker = InactivityTracker::new(recv_any_input2, args.break_duration);
 
     let idle = inactivity_tracker.idle_handle();
-    let mut status = Status::new(status_file, tcp_api, notify_config, idle, break_duration)
-        .wrap_err("Could not setup status reporting")?;
+    let mut status = Status::new(&args, idle).wrap_err("Could not setup status reporting")?;
 
     loop {
         status.set_waiting();
 
         wait_for_user_activity(&recv_any_input).wrap_err("Could not wait for activity")?;
-        status.set_working(Instant::now() + work_duration);
+        status.set_working(Instant::now() + args.work_duration);
 
-        let idle = match inactivity_tracker.reset_or_timeout(work_duration) {
+        let idle = match inactivity_tracker.reset_or_timeout(args.work_duration) {
             TrackResult::Error(e) => Err(e).wrap_err("Could not track inactivity")?,
             TrackResult::ShouldReset => continue,
             TrackResult::ShouldBreak { user_idle } => user_idle,
@@ -76,8 +58,8 @@ pub(crate) fn run(
             );
         }
 
-        status.set_break(Instant::now() + break_duration - idle);
-        thread::sleep(break_duration - idle);
+        status.set_break(Instant::now() + args.break_duration - idle);
+        thread::sleep(args.break_duration - idle);
 
         for lock in locks {
             lock.unlock()?;
