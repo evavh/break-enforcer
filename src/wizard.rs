@@ -27,14 +27,17 @@ pub fn run(custom_config_path: Option<PathBuf>) -> Result<()> {
     }
     let mut inputs: Vec<_> = inputs
         .into_iter()
-        .flat_map(|BlockableInput { names, id }| names.into_iter().map(move |n| (id, n)))
+        .flat_map(|BlockableInput { names, id }| {
+            names.into_iter().map(move |n| (id, n))
+        })
         .collect();
     inputs.dedup_by(|a, b| *a == *b);
 
     let mut options: Vec<_> = inputs
         .iter()
         .map(|(id, name)| {
-            let checked = config.get(id).is_some_and(|names| names.contains(name));
+            let checked =
+                config.get(id).is_some_and(|names| names.contains(name));
             (name, checked)
         })
         .collect();

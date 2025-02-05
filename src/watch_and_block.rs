@@ -57,7 +57,8 @@ impl fmt::Display for InputId {
             self.version.to_be_bytes(),
         ];
 
-        let base64 = general_purpose::URL_SAFE_NO_PAD.encode(data.as_flattened());
+        let base64 =
+            general_purpose::URL_SAFE_NO_PAD.encode(data.as_flattened());
         f.write_str(base64.as_str())
     }
 }
@@ -203,7 +204,8 @@ impl Inner {
             .id_to_devices
             .iter()
             .find(|(_, map)| {
-                map.len() == 1 && *map.keys().next().expect("len is one") == event_path
+                map.len() == 1
+                    && *map.keys().next().expect("len is one") == event_path
             })
             .map(|(id, _)| id)
             .copied()
@@ -239,7 +241,8 @@ impl Inner {
             .id_to_devices
             .iter()
             .map(|(id, devices)| {
-                let mut names: Vec<_> = devices.values().map(Device::name).collect();
+                let mut names: Vec<_> =
+                    devices.values().map(Device::name).collect();
                 names.sort();
                 BlockableInput { id: *id, names }
             })
@@ -298,13 +301,16 @@ impl Inner {
                     warn!("Could not lock, device busy: {}", device.name());
                 }
                 Err(e) if device_removed(&e) => {
-                    warn!("Could not lock, device probably removed: {}", device.name());
+                    warn!(
+                        "Could not lock, device probably removed: {}",
+                        device.name()
+                    );
                 }
-                err @ Err(_) => {
-                    return err
-                        .wrap_err("Could not grab (acquire exclusive access) to device")
-                        .with_note(|| format!("device name: {}", device.name()))
-                }
+                err @ Err(_) => return err
+                    .wrap_err(
+                        "Could not grab (acquire exclusive access) to device",
+                    )
+                    .with_note(|| format!("device name: {}", device.name())),
             }
         }
         Ok(())
@@ -380,7 +386,10 @@ pub fn devices() -> (OnlineDevices, Receiver<NewInput>) {
 }
 
 const DEV_DIR: &str = "/dev/input";
-fn send_initial_devices(online: &mut OnlineDevices, new_dev_tx: &Sender<NewInput>) {
+fn send_initial_devices(
+    online: &mut OnlineDevices,
+    new_dev_tx: &Sender<NewInput>,
+) {
     for entry in fs::read_dir(DEV_DIR).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
