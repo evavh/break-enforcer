@@ -113,30 +113,31 @@ impl Display for NotificationType {
 impl NotificationType {
     fn notify(&self, msg: &str) -> color_eyre::Result<()> {
         match self {
-            NotificationType::System => {
-                notification::notify(msg).wrap_err("Could not send system notification")?
-            }
-            NotificationType::Audio => {
-                notification::beep_all_users().wrap_err("Could not play audio notification")?
-            }
+            NotificationType::System => notification::notify(msg)
+                .wrap_err("Could not send system notification")?,
+            NotificationType::Audio => notification::beep_all_users()
+                .wrap_err("Could not play audio notification")?,
         }
         Ok(())
     }
 
     pub(crate) fn check_dependency(&self) -> color_eyre::Result<()> {
         match self {
-            NotificationType::System => {
-                notification::notify_available().wrap_err("dependency missing for notification")?
-            }
-            NotificationType::Audio => {
-                notification::beep_available().wrap_err("dependency missing for beep")?
-            }
+            NotificationType::System => notification::notify_available()
+                .wrap_err("dependency missing for notification")?,
+            NotificationType::Audio => notification::beep_available()
+                .wrap_err("dependency missing for beep")?,
         }
         Ok(())
     }
 }
 
-fn notify_if_needed(state: &State, notify: &mut NotifyConfig, state_changed: bool, msg: String) {
+fn notify_if_needed(
+    state: &State,
+    notify: &mut NotifyConfig,
+    state_changed: bool,
+    msg: String,
+) {
     const MARGIN: Duration = Duration::from_secs(1);
     if let State::Work { next_break } = *state {
         if let Some(warn_at) = notify.lock_warning {
@@ -161,7 +162,11 @@ fn notify_if_needed(state: &State, notify: &mut NotifyConfig, state_changed: boo
     }
 }
 
-fn format_status(state: &State, idle: &Arc<Mutex<Instant>>, break_duration: Duration) -> String {
+fn format_status(
+    state: &State,
+    idle: &Arc<Mutex<Instant>>,
+    break_duration: Duration,
+) -> String {
     let msg = match *state {
         State::Waiting => String::from("-"),
         State::Work { next_break } => {
@@ -183,7 +188,10 @@ fn format_status(state: &State, idle: &Arc<Mutex<Instant>>, break_duration: Dura
 }
 
 impl Status {
-    pub(crate) fn new(args: &RunArgs, idle: Arc<Mutex<Instant>>) -> Result<Self> {
+    pub(crate) fn new(
+        args: &RunArgs,
+        idle: Arc<Mutex<Instant>>,
+    ) -> Result<Self> {
         let file_status = if args.status_file {
             Some(FileStatus::new()?)
         } else {
@@ -243,7 +251,9 @@ impl Status {
                 .expect("can only be called once")
                 .join()
                 .expect("The integrator thread panicked")
-                .expect("The integrator thread returned an error, it should not");
+                .expect(
+                    "The integrator thread returned an error, it should not",
+                );
         }
     }
 

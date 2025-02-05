@@ -37,22 +37,27 @@ pub(crate) fn read(custom_path: Option<PathBuf>) -> Result<Vec<InputFilter>> {
         }
     };
 
-    let s = String::from_utf8(bytes).wrap_err("Corrupt config, contained non utf8")?;
+    let s = String::from_utf8(bytes)
+        .wrap_err("Corrupt config, contained non utf8")?;
     ron::from_str(&s).wrap_err("Could not deserialize to list of devices")
 }
 
-pub(crate) fn write(to_lock: &[InputFilter], custom_path: Option<PathBuf>) -> Result<()> {
-    let data = ron::ser::to_string_pretty(&to_lock, ron::ser::PrettyConfig::default())
-        .wrap_err("Could not serialize list of devices to toml")?;
+pub(crate) fn write(
+    to_lock: &[InputFilter],
+    custom_path: Option<PathBuf>,
+) -> Result<()> {
+    let data =
+        ron::ser::to_string_pretty(&to_lock, ron::ser::PrettyConfig::default())
+            .wrap_err("Could not serialize list of devices to toml")?;
 
     let path = custom_path.unwrap_or_else(setup_default_path);
     if let Some(dir) = path.parent() {
         if !dir.is_dir() {
-            return Err(
-                eyre!("Dir does not exist!").with_note(|| format!("dir: {}", dir.display()))
-            );
+            return Err(eyre!("Dir does not exist!")
+                .with_note(|| format!("dir: {}", dir.display())));
         }
     }
 
-    fs::write(path, data.as_bytes()).wrap_err("Could not write serialized list to file")
+    fs::write(path, data.as_bytes())
+        .wrap_err("Could not write serialized list to file")
 }

@@ -2,7 +2,9 @@ use std::{
     fs::{self, File},
     io::{self, Read},
     sync::{
-        mpsc::{self, channel, Receiver, RecvTimeoutError, Sender, TryRecvError},
+        mpsc::{
+            self, channel, Receiver, RecvTimeoutError, Sender, TryRecvError,
+        },
         Arc, Mutex,
     },
     thread,
@@ -25,12 +27,17 @@ pub enum TrackResult {
 }
 
 impl InactivityTracker {
-    pub fn new(input_receiver: Receiver<InputResult>, break_duration: Duration) -> Self {
+    pub fn new(
+        input_receiver: Receiver<InputResult>,
+        break_duration: Duration,
+    ) -> Self {
         let idle_since = Arc::new(Mutex::new(Instant::now()));
         let (tx, rx) = mpsc::channel();
         {
             let idle_since = idle_since.clone();
-            thread::spawn(move || watch_activity(&input_receiver, break_duration, idle_since, tx));
+            thread::spawn(move || {
+                watch_activity(&input_receiver, break_duration, idle_since, tx)
+            });
         }
 
         Self {
@@ -77,7 +84,9 @@ fn watch_activity(
     loop {
         match input_receiver.recv_timeout(break_duration) {
             Ok(Ok(())) => *idle_since.lock().unwrap() = Instant::now(),
-            Err(RecvTimeoutError::Timeout) => reset_notify.send(Ok(())).unwrap(),
+            Err(RecvTimeoutError::Timeout) => {
+                reset_notify.send(Ok(())).unwrap()
+            }
             Err(RecvTimeoutError::Disconnected) => unreachable!(),
             Ok(err @ Err(_)) => {
                 let err = err.wrap_err("test");

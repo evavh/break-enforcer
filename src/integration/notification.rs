@@ -15,7 +15,8 @@ fn all_users() -> Result<Vec<User>> {
         .output()
         .wrap_err("could not run loginctl")?
         .stdout;
-    let users = String::from_utf8(users).wrap_err("loginctl could not be parsed as utf8")?;
+    let users = String::from_utf8(users)
+        .wrap_err("loginctl could not be parsed as utf8")?;
     users
         .lines()
         .filter(|x| x.starts_with(' '))
@@ -37,8 +38,11 @@ fn all_users() -> Result<Vec<User>> {
 
 pub(crate) fn beep_all_users() -> Result<()> {
     fn beep(name: String, id: String) -> Result<()> {
-        let sound1 = include_bytes!("../../assets/new-notification-on-your-device-by-UNIVERSFIELD.wav");
-        let command = format!("sudo -u {name} XDG_RUNTIME_DIR=/run/user/{id} aplay");
+        let sound1 = include_bytes!(
+            "../../assets/new-notification-on-your-device-by-UNIVERSFIELD.wav"
+        );
+        let command =
+            format!("sudo -u {name} XDG_RUNTIME_DIR=/run/user/{id} aplay");
         let mut aplay = Command::new("sh")
             .arg("-c")
             .arg(command)
@@ -54,7 +58,9 @@ pub(crate) fn beep_all_users() -> Result<()> {
         Ok(())
     }
 
-    for User { id, name } in all_users().wrap_err("Could not get logged in users")? {
+    for User { id, name } in
+        all_users().wrap_err("Could not get logged in users")?
+    {
         let _ = std::thread::spawn(|| {
             if let Err(report) = beep(name, id).wrap_err("beep failed") {
                 eprintln!("{report:?}");
@@ -83,7 +89,9 @@ pub(crate) fn command_available(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             Err(eyre!("could not find {cmd} in path")).suggestion(packages_help)
         }
-        Err(e) => Err(e).wrap_err("Could not investigate whether aplay is installed"),
+        Err(e) => {
+            Err(e).wrap_err("Could not investigate whether aplay is installed")
+        }
     }
 }
 
@@ -96,7 +104,9 @@ pub(crate) fn beep_available() -> color_eyre::Result<()> {
 }
 
 pub(crate) fn notify(text: &str) -> Result<()> {
-    for User { id, name } in all_users().wrap_err("Could not get logged in users")? {
+    for User { id, name } in
+        all_users().wrap_err("Could not get logged in users")?
+    {
         let command = format!("sudo -u {name} DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{id}/bus notify-send -t 5000 \"{text}\"");
         Command::new("sh")
             .arg("-c")

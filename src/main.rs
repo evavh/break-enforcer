@@ -12,9 +12,9 @@ mod check_inputs;
 mod cli;
 mod config;
 mod install;
-mod status;
 mod integration;
 mod run;
+mod status;
 mod tcp_api_config;
 mod watch_and_block;
 mod wizard;
@@ -55,11 +55,16 @@ fn main() -> color_eyre::Result<()> {
 
     match cli.command {
         cli::Commands::Run(args) => run::run(args, cli.config_path),
-        cli::Commands::Wizard => wizard::run(cli.config_path).wrap_err("Error running wizard"),
-        cli::Commands::Status(args) => status::run(args).wrap_err("Could not print status"),
-        cli::Commands::Install(args) => {
-            install::set_up(&args, cli.config_path).wrap_err("Could not install")
+        cli::Commands::Wizard => {
+            wizard::run(cli.config_path).wrap_err("Error running wizard")
         }
-        cli::Commands::Remove => install::tear_down().wrap_err("Could not remove"),
+        cli::Commands::Status(args) => {
+            status::run(args).wrap_err("Could not print status")
+        }
+        cli::Commands::Install(args) => install::set_up(&args, cli.config_path)
+            .wrap_err("Could not install"),
+        cli::Commands::Remove => {
+            install::tear_down().wrap_err("Could not remove")
+        }
     }
 }
