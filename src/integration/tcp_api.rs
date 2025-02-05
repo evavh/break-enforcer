@@ -90,7 +90,9 @@ pub(crate) fn maintain(status: Status, args: RunArgs) -> Result<()> {
             Err(e) if e.kind() == ErrorKind::AddrInUse => {
                 continue;
             }
-            Err(other) => return Err(other).wrap_err("Could not start listening"),
+            Err(other) => {
+                return Err(other).wrap_err("Could not start listening")
+            }
         };
     }
 
@@ -122,7 +124,11 @@ pub(crate) fn maintain(status: Status, args: RunArgs) -> Result<()> {
     Ok(())
 }
 
-fn handle_conn(conn: std::net::TcpStream, status: Status, args: Arc<RunArgs>) -> Result<()> {
+fn handle_conn(
+    conn: std::net::TcpStream,
+    status: Status,
+    args: Arc<RunArgs>,
+) -> Result<()> {
     use std::io::BufRead;
 
     let mut writer = conn.try_clone().expect("tcp stream clone failed");
@@ -158,10 +164,14 @@ fn handle_conn(conn: std::net::TcpStream, status: Status, args: Arc<RunArgs>) ->
                     .write_all(&[STOP_BYTE])
                     .wrap_err("Could not write active or not to tcpstream")?;
             }
-            "subscribe_to_state_changes" => handle_subscriber(&status, &args, &mut writer)?,
+            "subscribe_to_state_changes" => {
+                handle_subscriber(&status, &args, &mut writer)?
+            }
             _ => {
                 debug!("packet: '{packet}'");
-                return Err(eyre!("got unexpected packet/api request, disconnecting"));
+                return Err(eyre!(
+                    "got unexpected packet/api request, disconnecting"
+                ));
             }
         }
     }
