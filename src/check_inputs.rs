@@ -98,6 +98,7 @@ fn watch_activity(
 
 pub type InputResult = Result<(), Arc<io::Error>>;
 
+// TODO: Windows version
 pub(crate) fn watcher(
     just_connected: Receiver<NewInput>,
     to_block: Vec<InputFilter>,
@@ -127,6 +128,7 @@ pub(crate) fn watcher(
     (rx1, rx2)
 }
 
+// TODO: Windows version
 fn monitor_input(
     input: NewInput,
     tx1: &Sender<InputResult>,
@@ -170,11 +172,13 @@ fn monitor_input(
     }
 }
 
+// TODO: Windows version
 pub fn wait_for_input(file: &mut File) -> std::io::Result<()> {
     let mut packet = [0u8; 24];
     file.read_exact(&mut packet)
 }
 
+// TODO: Windows version
 pub fn device_removed(e: &std::io::Error) -> bool {
     e.raw_os_error() == Some(19i32) && e.to_string().contains("No such device")
 }

@@ -41,6 +41,7 @@ fn main() -> color_eyre::Result<()> {
         .init();
 
     // check after args such that help can run without root
+    // TODO: check only on Linux
     if let sudo::RunningAs::User = sudo::check() {
         if cli.command.needs_sudo() {
             return Err(eyre!(concat!(
@@ -55,14 +56,17 @@ fn main() -> color_eyre::Result<()> {
 
     match cli.command {
         cli::Commands::Run(args) => run::run(args, cli.config_path),
+        // TODO: only on Linux
         cli::Commands::Wizard => {
             wizard::run(cli.config_path).wrap_err("Error running wizard")
         }
         cli::Commands::Status(args) => {
             status::run(args).wrap_err("Could not print status")
         }
+        // TODO: only on Linux
         cli::Commands::Install(args) => install::set_up(&args, cli.config_path)
             .wrap_err("Could not install"),
+        // TODO: only on Linux
         cli::Commands::Remove => {
             install::tear_down().wrap_err("Could not remove")
         }
