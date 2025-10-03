@@ -30,7 +30,11 @@ pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
             "No devices set up. The service would do nothing. Please run the wizard"
         ));
     }
-    for warning_type in &run_args.lock_warning_type {
+    for warning_type in run_args
+        .break_start_notify
+        .iter()
+        .chain(run_args.break_end_notify.iter())
+    {
         warning_type
             .check_dependency()
             .wrap_err("Can not provide configured warning/notification")?;
@@ -54,14 +58,19 @@ pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
         args.push("--work-between-long-breaks".to_string());
         args.push(fmt_dur(work_between_long_breaks));
     }
-    if let Some(warn_duration) = run_args.lock_warning {
+
+    args.push("--warning-period".to_string());
+    args.push(fmt_dur(run_args.break_start_lead));
+
+    for notify_type in &run_args.break_start_notify {
         args.push("--lock-warning".to_string());
-        args.push(fmt_dur(warn_duration));
+        args.push(notify_type.to_string());
     }
-    for warn_type in &run_args.lock_warning_type {
-        args.push("--lock-warning-type".to_string());
-        args.push(warn_type.to_string());
+    for notify_type in &run_args.break_end_notify {
+        args.push("--lock-release".to_string());
+        args.push(notify_type.to_string());
     }
+
     if run_args.status_file {
         args.push("--status-file".to_string());
     }
