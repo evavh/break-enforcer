@@ -10,11 +10,11 @@ use crate::integration::NotificationType;
 pub struct RunArgs {
     /// Period after which input will be disabled.  
     /// Note: run help command to see the duration format.
-    #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
+    #[arg(long, value_name = "duration", value_parser = parse_duration)]
     pub work_duration: Duration,
     /// Length of the (short) breaks, after this period input is resumed.
     /// Note: run help command to see the duration format.
-    #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
+    #[arg(long, value_name = "duration", value_parser = parse_duration)]
     pub break_duration: Duration,
     /// Length of the long breaks, after this period input is resumed.
     /// Note: run help command to see the duration format.
@@ -24,29 +24,38 @@ pub struct RunArgs {
     /// Note: run help command to see the duration format.
     #[arg(long, value_name = "duration", value_parser = parse_duration)]
     pub work_between_long_breaks: Option<Duration>,
-    /// Optional takes a duration, if set sends a notification ahead of the break.
+    /// How long before a break starts to send a notification.
     /// Note: run help command to see the duration format.
-    #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
-    pub lock_warning: Option<Duration>,
-    /// Type of notification to get as lock warning.
+    #[arg(long, value_name = "duration", value_parser = parse_duration, default_value = "30s")]
+    pub break_start_lead: Duration,
+    /// How long before a break ends to send a notification.
+    /// Note: run help command to see the duration format.
+    #[arg(long, value_name = "duration", value_parser = parse_duration, default_value = "5s")]
+    pub break_end_lead: Duration,
+    /// Type of notification to get when break is about to begin.
     /// - For audio you need aplay installed.
     /// - For system you need notify-send installed.
-    #[arg(short('a'), long, value_enum)]
-    pub lock_warning_type: Vec<NotificationType>,
+    #[arg(long, value_enum)]
+    pub break_start_notify: Vec<NotificationType>,
+    /// Type of notification to get when the break is over.
+    /// - For audio you need aplay installed.
+    /// - For system you need notify-send installed.
+    #[arg(long, value_enum)]
+    pub break_end_notify: Vec<NotificationType>,
     /// Enable the TCP API. Enables the `Status` command and other apps
     /// to interface using the break-enforcer library. The API only
     /// accepts connections from the same system.
-    #[arg(short, long)]
+    #[arg(long)]
     pub tcp_api: bool,
     /// Enable the status file. It contains a string describing the time till
     /// the next break, the time till the current break is over or that the user
     /// is idle. The file is located at `/var/run/break_enforcer` and is called
     /// `status.txt`
-    #[arg(short, long)]
+    #[arg(long)]
     pub status_file: bool,
     /// verbose notifications. Sends notifications when:
     /// the break begins, a work session begins, we are waiting for input
-    #[arg(short, long)]
+    #[arg(long)]
     pub notifications: bool,
 }
 

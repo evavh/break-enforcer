@@ -3,6 +3,8 @@
 #![feature(io_error_more)]
 #![feature(iter_collect_into)]
 
+use std::time::{Duration, Instant};
+
 use clap::Parser;
 use color_eyre::eyre::Context;
 use color_eyre::{eyre::eyre, Section};
@@ -72,3 +74,14 @@ fn main() -> color_eyre::Result<()> {
         }
     }
 }
+
+trait DurationUntil {
+    fn duration_until(&self) -> Duration;
+}
+
+impl DurationUntil for Instant {
+    fn duration_until(&self) -> Duration {
+        self.saturating_duration_since(Instant::now())
+    }
+}
+
