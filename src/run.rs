@@ -13,21 +13,16 @@ use crate::integration::Status;
 use crate::{check_inputs, watch_and_block};
 use std::{sync::mpsc::Receiver, thread};
 
-pub(crate) fn run(
-    args: RunArgs,
-    config_path: Option<PathBuf>,
-) -> Result<()> {
+pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     // TODO: use args.<member> instead
     let RunArgs {
         work_duration,
         break_duration,
         long_break_duration,
         work_between_long_breaks,
-        lock_warning: _,
-        ref lock_warning_type,
-        status_file: _,
-        tcp_api: _,
-        notifications: _,
+        break_start_notify: ref lock_warning,
+        break_end_notify: ref lock_release,
+        ..
     } = args;
 
     trace!("Long break: {long_break_duration:?}");
@@ -50,7 +45,8 @@ pub(crate) fn run(
         .suggestion("Run the wizard")
         .suggestion("Maybe you have a (wrong) custom location set?");
     }
-    for warning_type in lock_warning_type {
+
+    for warning_type in lock_warning.iter().chain(lock_release.iter()) {
         warning_type
             .check_dependency()
             .wrap_err("Can not provide configured warning/notification")?;
@@ -94,8 +90,7 @@ pub(crate) fn run(
         let work_start = Instant::now();
         status.set_working(work_start + work_duration);
 
-        let idle = match inactivity_tracker.reset_or_timeout(work_duration)
-        {
+        let idle = match inactivity_tracker.reset_or_timeout(work_duration) {
             TrackResult::Error(e) => {
                 Err(e).wrap_err("Could not track inactivity")?
             }

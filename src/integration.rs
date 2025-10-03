@@ -12,6 +12,7 @@ use file_status::FileStatus;
 use tracing::error;
 
 use crate::cli::RunArgs;
+use crate::DurationUntil;
 mod notification;
 pub(crate) mod tcp_api;
 
@@ -28,18 +29,8 @@ impl State {
             State::Waiting => StateUpdate::Reset,
             State::Work { .. } => StateUpdate::BreakEnded,
             State::Break { .. } => StateUpdate::BreakStarted,
-            State::WaitingLongReset {..} => StateUpdate::LongReset,
+            State::WaitingLongReset { .. } => StateUpdate::LongReset,
         }
-    }
-}
-
-trait DurationUntil {
-    fn duration_until(&self) -> Duration;
-}
-
-impl DurationUntil for Instant {
-    fn duration_until(&self) -> Duration {
-        self.saturating_duration_since(Instant::now())
     }
 }
 
@@ -49,11 +40,54 @@ pub struct Status {
 }
 
 pub(crate) struct NotifyConfig {
-    /// warn if this close to locking
-    pub(crate) lock_warning: Option<Duration>,
-    pub(crate) lock_notify_type: Vec<NotificationType>,
-    pub(crate) last_lock_warning: Instant,
+    pub(crate) lead_time: Duration,
+    pub(crate) types: Vec<NotificationType>,
+    pub(crate) last_issued: Instant,
+}
+
+impl NotifyConfig {
+    fn emit_if_needed(&mut self, next_at: Instant, event_description: &str) {
+        const MARGIN: Duration = Duration::from_secs(1);
+        if next_at.duration_until() < self.lead_time {
+            // debounce
+            if self.last_issued.elapsed() > self.lead_time + MARGIN {
+                let msg = format!(
+                    "{event_description} in {}",
+                    fmt_dur(self.lead_time)
+                );
+                self.last_issued = Instant::now();
+                for notify_type in &self.types {
+                    if let Err(report) = notify_type.notify(&msg) {
+                        error!("Failed to send {event_description} notification: {report}")
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub(crate) struct NotifyConfigs {
+    pub(crate) break_start: NotifyConfig,
+    pub(crate) break_end: NotifyConfig,
     pub(crate) state_notifications: bool,
+}
+
+impl NotifyConfigs {
+    fn from_args(args: &RunArgs) -> Self {
+        Self {
+            break_start: NotifyConfig {
+                lead_time: args.break_start_lead,
+                types: args.break_start_notify.clone(),
+                last_issued: Instant::now(),
+            },
+            break_end: NotifyConfig {
+                lead_time: args.break_end_lead,
+                types: args.break_end_notify.clone(),
+                last_issued: Instant::now(),
+            },
+            state_notifications: args.notifications,
+        }
+    }
 }
 
 fn integrate(
@@ -62,7 +96,7 @@ fn integrate(
     mut api_status: Option<tcp_api::Status>,
     idle: Arc<Mutex<Instant>>,
     break_duration: Duration,
-    mut notify: NotifyConfig,
+    mut notify: NotifyConfigs,
 ) -> Result<()> {
     let mut timeout = Duration::MAX;
     let mut state = State::Waiting;
@@ -85,17 +119,17 @@ fn integrate(
             | State::Break { .. } => Duration::from_secs(1),
         };
 
-        let msg = format_status(&state, &idle, break_duration);
+        let statusbar_msg = format_statusbar_msg(&state, &idle, break_duration);
         if let Some(status) = &mut file_status {
-            status.update(&msg);
+            status.update(&statusbar_msg);
         }
         if let Some(status) = &mut api_status {
-            status.update_msg(&msg);
+            status.update_msg(&statusbar_msg);
             if state_changed {
                 status.update_subscribers(&state);
             }
         }
-        notify_if_needed(&state, &mut notify, state_changed, msg);
+        notify_if_needed(&state, &mut notify, state_changed, statusbar_msg);
     }
 }
 
@@ -138,35 +172,24 @@ impl NotificationType {
 
 fn notify_if_needed(
     state: &State,
-    notify: &mut NotifyConfig,
+    notify: &mut NotifyConfigs,
     state_changed: bool,
-    msg: String,
+    statusbar_msg: String,
 ) {
-    const MARGIN: Duration = Duration::from_secs(1);
     if let State::Work { next_break } = *state {
-        if let Some(warn_at) = notify.lock_warning {
-            if next_break.duration_until() < warn_at {
-                if notify.last_lock_warning.elapsed() > warn_at + MARGIN {
-                    let msg = format!("locking in {}", fmt_dur(warn_at));
-                    notify.last_lock_warning = Instant::now();
-                    for notify_type in &notify.lock_notify_type {
-                        if let Err(report) = notify_type.notify(&msg) {
-                            error!("Failed to send lock warning: {report}")
-                        }
-                    }
-                }
-            }
-        }
+        notify.break_start.emit_if_needed(next_break, "locking");
+    } else if let State::Break { next_work } = *state {
+        notify.break_end.emit_if_needed(next_work, "unlocking");
     }
 
     if notify.state_notifications && state_changed {
-        if let Err(report) = notification::notify(&msg) {
+        if let Err(report) = notification::notify(&statusbar_msg) {
             error!("Failed to send state change notification: {report}")
         }
     }
 }
 
-fn format_status(
+fn format_statusbar_msg(
     state: &State,
     idle: &Arc<Mutex<Instant>>,
     break_duration: Duration,
@@ -228,12 +251,7 @@ impl Status {
 
         let (tx, rx) = mpsc::channel();
 
-        let notify_config = NotifyConfig {
-            lock_warning: args.lock_warning,
-            lock_notify_type: args.lock_warning_type.clone(),
-            last_lock_warning: Instant::now(),
-            state_notifications: args.notifications,
-        };
+        let notify_config = NotifyConfigs::from_args(args);
 
         let break_duration = args.break_duration;
         let integrator = thread::spawn(move || {
