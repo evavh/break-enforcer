@@ -63,7 +63,7 @@ pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     args.push(fmt_dur(run_args.break_start_lead));
 
     args.push("--break-end-lead".to_string());
-    args.push(fmt_dur(run_args.break_start_lead));
+    args.push(fmt_dur(run_args.break_end_lead));
 
     for notify_type in &run_args.break_start_notify {
         args.push("--break-start-notify".to_string());
