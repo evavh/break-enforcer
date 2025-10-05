@@ -59,15 +59,18 @@ pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
         args.push(fmt_dur(work_between_long_breaks));
     }
 
-    args.push("--warning-period".to_string());
+    args.push("--break-start-lead".to_string());
+    args.push(fmt_dur(run_args.break_start_lead));
+
+    args.push("--break-end-lead".to_string());
     args.push(fmt_dur(run_args.break_start_lead));
 
     for notify_type in &run_args.break_start_notify {
-        args.push("--lock-warning".to_string());
+        args.push("--break-start-notify".to_string());
         args.push(notify_type.to_string());
     }
     for notify_type in &run_args.break_end_notify {
-        args.push("--lock-release".to_string());
+        args.push("--break-end-notify".to_string());
         args.push(notify_type.to_string());
     }
 

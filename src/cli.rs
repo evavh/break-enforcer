@@ -10,11 +10,11 @@ use crate::integration::NotificationType;
 pub struct RunArgs {
     /// Period after which input will be disabled.  
     /// Note: run help command to see the duration format.
-    #[arg(long, value_name = "duration", value_parser = parse_duration)]
+    #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
     pub work_duration: Duration,
     /// Length of the (short) breaks, after this period input is resumed.
     /// Note: run help command to see the duration format.
-    #[arg(long, value_name = "duration", value_parser = parse_duration)]
+    #[arg(short, long, value_name = "duration", value_parser = parse_duration)]
     pub break_duration: Duration,
     /// Length of the long breaks, after this period input is resumed.
     /// Note: run help command to see the duration format.
