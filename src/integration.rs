@@ -69,6 +69,7 @@ impl NotifyConfig {
 pub(crate) struct NotifyConfigs {
     pub(crate) break_start: NotifyConfig,
     pub(crate) break_end: NotifyConfig,
+    pub(crate) work_reset: NotifyConfig,
     pub(crate) state_notifications: bool,
 }
 
@@ -85,6 +86,11 @@ impl NotifyConfigs {
                 types: args.break_end_notify.clone(),
                 last_issued: Instant::now(),
             },
+            work_reset: NotifyConfig {
+                lead_time: args.work_reset_lead,
+                types: args.work_reset_notify.clone(),
+                last_issued: Instant::now(),
+            },
             state_notifications: args.notifications,
         }
     }
@@ -94,16 +100,18 @@ fn integrate(
     rx: &mpsc::Receiver<State>,
     mut file_status: Option<FileStatus>,
     mut api_status: Option<tcp_api::Status>,
-    idle: Arc<Mutex<Instant>>,
-    break_duration: Duration,
-    mut notify: NotifyConfigs,
+    idle_since: Arc<Mutex<Instant>>,
+    args: RunArgs,
 ) -> Result<()> {
-    let mut timeout = Duration::MAX;
+    let mut next_update_needed_in = Duration::MAX;
     let mut state = State::Waiting;
 
+    let break_duration = args.break_duration;
+    let mut notify = NotifyConfigs::from_args(&args);
     loop {
         let mut state_changed = false;
-        match rx.recv_timeout(timeout) {
+        dbg!(&state);
+        match rx.recv_timeout(next_update_needed_in) {
             Ok(s) => {
                 state = s;
                 state_changed = true;
@@ -112,14 +120,16 @@ fn integrate(
             Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
         }
 
-        timeout = match state {
+        next_update_needed_in = match state {
             State::Waiting => Duration::MAX,
             State::WaitingLongReset { .. }
             | State::Work { .. }
             | State::Break { .. } => Duration::from_secs(1),
         };
 
-        let statusbar_msg = format_statusbar_msg(&state, &idle, break_duration);
+        let idle_since = idle_since.lock().unwrap().clone();
+        let statusbar_msg =
+            format_statusbar_msg(&state, idle_since.elapsed(), break_duration);
         if let Some(status) = &mut file_status {
             status.update(&statusbar_msg);
         }
@@ -129,7 +139,14 @@ fn integrate(
                 status.update_subscribers(&state);
             }
         }
-        notify_if_needed(&state, &mut notify, state_changed, statusbar_msg);
+        let resets_at = idle_since + args.break_duration;
+        notify_if_needed(
+            &state,
+            resets_at,
+            &mut notify,
+            state_changed,
+            statusbar_msg,
+        );
     }
 }
 
@@ -172,12 +189,16 @@ impl NotificationType {
 
 fn notify_if_needed(
     state: &State,
+    resets_at: Instant,
     notify: &mut NotifyConfigs,
     state_changed: bool,
     statusbar_msg: String,
 ) {
     if let State::Work { next_break } = *state {
         notify.break_start.emit_if_needed(next_break, "locking");
+        notify
+            .work_reset
+            .emit_if_needed(resets_at, "work period reset");
     } else if let State::Break { next_work } = *state {
         notify.break_end.emit_if_needed(next_work, "unlocking");
     }
@@ -191,7 +212,7 @@ fn notify_if_needed(
 
 fn format_statusbar_msg(
     state: &State,
-    idle: &Arc<Mutex<Instant>>,
+    idle_for: Duration,
     break_duration: Duration,
 ) -> String {
     let msg = match *state {
@@ -199,15 +220,13 @@ fn format_statusbar_msg(
         State::WaitingLongReset {
             long_break_duration,
         } => {
-            let idle = idle.lock().unwrap().elapsed();
-            let break_dur = long_break_duration.saturating_sub(idle);
+            let break_dur = long_break_duration.saturating_sub(idle_for);
             let break_dur = fmt_dur(break_dur);
             format!("long reset in {}", break_dur)
         }
         State::Work { next_break } => {
-            let idle = idle.lock().unwrap().elapsed();
-            if idle > Duration::from_secs(30) {
-                let break_dur = break_duration.saturating_sub(idle);
+            if idle_for > Duration::from_secs(30) {
+                let break_dur = break_duration.saturating_sub(idle_for);
                 let break_dur = fmt_dur(break_dur);
                 format!("idle, reset in {}", break_dur)
             } else {
@@ -251,19 +270,12 @@ impl Status {
 
         let (tx, rx) = mpsc::channel();
 
-        let notify_config = NotifyConfigs::from_args(args);
-
-        let break_duration = args.break_duration;
-        let integrator = thread::spawn(move || {
-            integrate(
-                &rx,
-                file_status,
-                api_status,
-                idle,
-                break_duration,
-                notify_config,
-            )
-        });
+        let integrator = {
+            let args = args.clone();
+            thread::spawn(move || {
+                integrate(&rx, file_status, api_status, idle, args)
+            })
+        };
 
         Ok(Self {
             update: tx,

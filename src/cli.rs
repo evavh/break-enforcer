@@ -32,6 +32,10 @@ pub struct RunArgs {
     /// Note: run help command to see the duration format.
     #[arg(long, value_name = "duration", value_parser = parse_duration, default_value = "5s")]
     pub break_end_lead: Duration,
+    /// How long before the work period resets to send a notification.
+    /// Note: run help command to see the duration format.
+    #[arg(long, value_name = "duration", value_parser = parse_duration, default_value = "5s")]
+    pub work_reset_lead: Duration,
     /// Type of notification to get when break is about to begin.
     /// - For audio you need aplay installed.
     /// - For system you need notify-send installed.
@@ -42,6 +46,11 @@ pub struct RunArgs {
     /// - For system you need notify-send installed.
     #[arg(long, value_enum)]
     pub break_end_notify: Vec<NotificationType>,
+    /// Enable the TCP API. Enables the `Status` command and other apps
+    /// to interface using the break-enforcer library. The API only
+    /// accepts connections from the same system.
+    #[arg(long, value_enum)]
+    pub work_reset_notify: Vec<NotificationType>,
     /// Enable the TCP API. Enables the `Status` command and other apps
     /// to interface using the break-enforcer library. The API only
     /// accepts connections from the same system.

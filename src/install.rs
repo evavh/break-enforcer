@@ -65,12 +65,19 @@ pub fn set_up(run_args: &RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     args.push("--break-end-lead".to_string());
     args.push(fmt_dur(run_args.break_end_lead));
 
+    args.push("--work-reset-lead".to_string());
+    args.push(fmt_dur(run_args.work_reset_lead));
+
     for notify_type in &run_args.break_start_notify {
         args.push("--break-start-notify".to_string());
         args.push(notify_type.to_string());
     }
     for notify_type in &run_args.break_end_notify {
         args.push("--break-end-notify".to_string());
+        args.push(notify_type.to_string());
+    }
+    for notify_type in &run_args.work_reset_notify {
+        args.push("--work-reset-notify".to_string());
         args.push(notify_type.to_string());
     }
 
