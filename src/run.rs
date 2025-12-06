@@ -95,6 +95,8 @@ pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
                 Err(e).wrap_err("Could not track inactivity")?
             }
             TrackResult::ShouldReset => {
+                // we reset after short_break_duration so we know the user has
+                // been inactive for that long
                 worked_since_long_break +=
                     work_start.elapsed().saturating_sub(short_break_duration);
                 continue;
