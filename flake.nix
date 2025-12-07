@@ -30,29 +30,8 @@
 			# store path, so we need to provide our own version of
 			# gitignoreSource that avoids builtins.filterSource in favor of
 			# builtins.path.
-            gitignoreSource = patterns: path:
-              builtins.path {
-                filter =
-                  gitignoreFilterPure (_: _: true) (withGitignoreFile patterns path) path;
-                path = path;
-                name = "src";
-              };
 
-			# Ignore some extra things that don't factor into the main build to
-			# help with caching.
-            extraIgnores = ''
-              /.envrc
-              /*.nix
-              /flake.*
-              /netlify.toml
-              /.github
-              /assets
-              /*.md
-              /.gitignore
-              /LICENSE
-            '';
-
-            src = gitignoreSource extraIgnores ./.;
+            src = "src" "assets"
 
             cargoTOML = lib.importTOML "${src}/Cargo.toml";
             rustToolchain = rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
