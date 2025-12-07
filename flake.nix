@@ -48,12 +48,6 @@
 				};
 
           ####################################################################
-          #### configuration (systemd                                     ####
-          ####################################################################
-		  nixosModule.break-enforcer = ./nix_module.nix;
-
-
-          ####################################################################
           #### dev shell                                                  ####
           ####################################################################
           devShell = with pkgs;
@@ -65,21 +59,12 @@
             };
         in
         {
-          apps = {
-            break-enforcer = {
-              type = "app";
-              program = "${break-enforcer}/bin/break-enforcer";
-              description = "Software break enforcer, with activity detection.";
-            };
-            default = self.apps.${system}.break-enforcer;
-          };
           devShells.default = devShell;
-          packages = {
-            inherit break-enforcer;
-            default = self.packages.${system}.break-enforcer;
-          };
-          checks = {
-            inherit break-enforcer;
-          };
-        });
+		  defaultPackage = break-enforcer;
+        }) // {
+			overlays.default = _: prev: {
+				break-enforcer = self.defaultPackage.${prev.system};
+			};
+			  nixosModules.break-enforcer = ./nix_module.nix;
+		};
 }

@@ -4,6 +4,7 @@ with lib;
 let
 	cfg = config.services.break-enforcer;
 in
+{
 	options = {
 		services.break-enforcer = {
 			enable = mkEnableOption "break-enforcer";
@@ -11,32 +12,33 @@ in
 	};
 
 	config = mkIf cfg.enable {
-		systemd.services.break-enforcer {
+		systemd.services.break-enforcer = {
 			description = "Disables input during breaks";
-			after = "network.target";
+			after = ["network.target"];
 			wantedBy = ["multi-user.target"];
 
 			serviceConfig = {
 				Type = "simple";
-				ExecStart = ``
-					${pkgs.break-enforcer}/bin/break-enforcer run 
-					--work-duration 25:00
-					--break-duration 05:00
-					--break-start-lead 30s
-					--break-end-lead 5s
+				ExecStart = ''
+					${pkgs.break-enforcer}/bin/break-enforcer run \
+					--work-duration 25:00 \
+					--break-duration 05:00 \
+					--break-start-lead 30s \
+					--break-end-lead 5s \
 					--tcp-api
-					``;
-			}
-		}
-	}
-
-{
-	# options = {
-	# 	enabled = mkOption {
-	# 		type = types.bool;
-	# 		default = true;
-	# 		description = "a test";
-	# 	}
-	# }
-
+					'';
+			};
+		};
+	};
 }
+
+# {
+# 	# options = {
+# 	# 	enabled = mkOption {
+# 	# 		type = types.bool;
+# 	# 		default = true;
+# 	# 		description = "a test";
+# 	# 	}
+# 	# }
+#
+# }
