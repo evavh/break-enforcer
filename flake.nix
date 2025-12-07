@@ -23,16 +23,8 @@
           #### break-enforcer package                                     ####
           ####################################################################
           break-enforcer = with pkgs; let
-            inherit (nix-gitignore) gitignoreFilterPure withGitignoreFile;
-			# Workaround for the builtins.filterSource issue mentioned in
-			# https://nixos.org/manual/nix/unstable/expressions/builtins.html
-			# Since this might be built from a flake, the source path may be a
-			# store path, so we need to provide our own version of
-			# gitignoreSource that avoids builtins.filterSource in favor of
-			# builtins.path.
-
-            src = "src" "assets"
-
+            src = ./.;
+            
             cargoTOML = lib.importTOML "${src}/Cargo.toml";
             rustToolchain = rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
             rust = makeRustPlatform {
