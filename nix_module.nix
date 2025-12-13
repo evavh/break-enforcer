@@ -25,6 +25,8 @@ in
 					--break-duration 05:00 \
 					--break-start-lead 30s \
 					--break-end-lead 5s \
+					--break-start-notify audio \
+					--break-end-notify audio \
 					--tcp-api
 					'';
 			};
