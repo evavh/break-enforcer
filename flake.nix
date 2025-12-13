@@ -45,6 +45,16 @@
 					inherit (cargoTOML.package) description homepage;
 					maintainers = cargoTOML.package.authors;
 				  };
+
+				  nativeBuildInputs = with pkgs; [
+				  	makeWrapper
+				  ];
+
+				  postInstall = ''
+				    wrapProgram $out/bin/break-enforcer \
+					  --prefix PATH : "${nixpkgs.lib.makeBinPath [
+					  pkgs.alsa-utils ]}"
+				  '';
 				};
 
           ####################################################################
