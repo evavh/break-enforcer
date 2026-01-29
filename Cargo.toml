@@ -2,6 +2,8 @@
 name = "break-enforcer"
 version = "0.3.2"
 edition = "2021"
+description = "Software break enforcer, with activity detection."
+authors = ["evavh" ,"yara.blue"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
