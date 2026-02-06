@@ -59,22 +59,19 @@ in
 				type = listOf (enum ["system" "audio"]);
 				default = [];
 				description = "Type of notification to get when break is about
-				to begin. - For audio you need aplay installed. - For system you
-				need notify-send installed [possible values: system, audio]";
+				to begin.";
 			};
 			break-end-notify = mkOption {
 				type = listOf (enum ["system" "audio"]);
 				default = [];
 				description = "Type of notification to get when break is about
-				to end. - For audio you need aplay installed. - For system you
-				need notify-send installed [possible values: system, audio]";
+				to end.";
 			};
 			work-reset-notify = mkOption {
 				type = listOf (enum ["system" "audio"]);
 				default = [];
 				description = "Type of notification to get when break is about
-				to end. - For audio you need aplay installed. - For system you
-				need notify-send installed [possible values: system, audio]";
+				to end.";
 			};
 			tcp-api = mkEnableOption "tcp-api";
 			status-file = mkEnableOption "status-file";
@@ -95,9 +92,11 @@ in
 					--work-duration ${cfg.work-duration} \
 					--break-duration ${cfg.break-duration} \
 					 ${optionalString (cfg.long-break-duration != null)
-					 "--long-break-duration ${cfg.long-break-duration}"}
+					 "--long-break-duration 
+					 ${cfg.long-break-duration}"} \
 					 ${optionalString (cfg.work-between-long-breaks != null)
-					 "--work-between-long-breaks ${cfg.work-between-long-breaks}"}
+					 "--work-between-long-breaks
+					 ${cfg.work-between-long-breaks}"} \
 					--break-start-lead ${cfg.break-start-lead} \
 					--break-end-lead ${cfg.break-end-lead} \
 					--work-reset-lead ${cfg.work-reset-lead} \
