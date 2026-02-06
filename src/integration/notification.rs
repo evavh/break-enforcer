@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
 use color_eyre::eyre::{eyre, Context};
@@ -41,15 +42,16 @@ pub(crate) fn beep_all_users() -> Result<()> {
         let sound1 = include_bytes!(
             "../../assets/new-notification-on-your-device-by-UNIVERSFIELD.wav"
         );
-        let command =
-            format!("sudo -u {name} XDG_RUNTIME_DIR=/run/user/{id} aplay");
-        let mut aplay = Command::new("sh")
-            .arg("-c")
-            .arg(command)
+
+        let uid: u32 = id.parse().wrap_err("Failed to parse user id")?;
+        let mut aplay = Command::new("aplay")
+            .env("XDG_RUNTIME_DIR", format!("/run/user/{id}"))
+            .uid(uid)
             .stdin(Stdio::piped())
             .spawn()
             .wrap_err("Could not spawn shell")
             .with_note(|| format!("as user: {id}:{name}"))?;
+
         let stdin = aplay.stdin.as_mut().expect("is set to piped");
         stdin
             .write_all(sound1)

@@ -53,7 +53,7 @@
 				  postInstall = ''
 				    wrapProgram $out/bin/break-enforcer \
 					  --prefix PATH : "${nixpkgs.lib.makeBinPath [
-					  pkgs.alsa-utils ]}"
+					  pkgs.alsa-utils pkgs.libnotify ]}"
 				  '';
 				};
 

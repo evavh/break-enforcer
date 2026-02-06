@@ -110,7 +110,6 @@ fn integrate(
     let mut notify = NotifyConfigs::from_args(&args);
     loop {
         let mut state_changed = false;
-        dbg!(&state);
         match rx.recv_timeout(next_update_needed_in) {
             Ok(s) => {
                 state = s;
