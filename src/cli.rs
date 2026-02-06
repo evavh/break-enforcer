@@ -46,9 +46,9 @@ pub struct RunArgs {
     /// - For system you need notify-send installed.
     #[arg(long, value_enum)]
     pub break_end_notify: Vec<NotificationType>,
-    /// Enable the TCP API. Enables the `Status` command and other apps
-    /// to interface using the break-enforcer library. The API only
-    /// accepts connections from the same system.
+    /// Type of notification to get when the work time resets.
+    /// - For audio you need aplay installed.
+    /// - For system you need notify-send installed.
     #[arg(long, value_enum)]
     pub work_reset_notify: Vec<NotificationType>,
     /// Enable the TCP API. Enables the `Status` command and other apps
