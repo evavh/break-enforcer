@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use break_enforcer::StateUpdate;
 use color_eyre::eyre::Context;
-use color_eyre::Result;
+use color_eyre::{Result, Section};
 
 mod file_status;
 use file_status::FileStatus;
@@ -60,7 +60,7 @@ impl NotifyConfig {
                 self.last_issued = Instant::now();
                 for notify_type in &self.types {
                     if let Err(report) = notify_type.notify(&msg) {
-                        error!("Failed to send {event_description} notification: {report}")
+                        error!("Failed to send {event_description} notification: {report:?}")
                     }
                 }
             }
@@ -208,13 +208,13 @@ impl NotificationType {
     fn notify(&self, msg: &str) -> color_eyre::Result<()> {
         match self {
             NotificationType::System => notification::notify(msg)
-                .wrap_err("Could not send system notification")?,
+                .wrap_err("Could not send system notification"),
             NotificationType::Audio => notification::beep_all_users()
-                .wrap_err("Could not play audio notification")?,
-            NotificationType::Command(s) => notification::run_command(s)
-                .wrap_err("Could not run user provided command")?,
+                .wrap_err("Could not play audio notification"),
+            NotificationType::Command(c) => notification::run_command(c)
+                .wrap_err("Could not run user provided command")
+                .with_note(|| format!("command: {c:?}"))
         }
-        Ok(())
     }
 
     pub(crate) fn check_dependency(&self) -> color_eyre::Result<()> {

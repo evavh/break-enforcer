@@ -119,9 +119,9 @@ in
           --break-start-lead ${cfg.break-start-lead} \
           --break-end-lead ${cfg.break-end-lead} \
           --work-reset-lead ${cfg.work-reset-lead} \
-          ${concatMapStrings (x: "--break-start-notify " + "\"" + x + "\"") cfg.break-start-notify} \
-          ${concatMapStrings (x: "--break-end-notify " + "\"" + x + "\"") cfg.break-end-notify} \
-          ${concatMapStrings (x: "--work-reset-notify " + "\"" + x + "\"") cfg.work-reset-notify} \
+          ${concatMapStrings (x: "--break-start-notify " + "\"" + x + "\" ") cfg.break-start-notify} \
+          ${concatMapStrings (x: "--break-end-notify " + "\"" + x + "\" ") cfg.break-end-notify} \
+          ${concatMapStrings (x: "--work-reset-notify " + "\"" + x + "\" ") cfg.work-reset-notify} \
           ${optionalString cfg.tcp-api "--tcp-api"} \
           ${optionalString cfg.status-file "--status-file"} \
           ${optionalString cfg.notifications "--notifications"}

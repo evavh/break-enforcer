@@ -131,20 +131,18 @@ pub(crate) fn notify_available() -> color_eyre::Result<()> {
     )
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("{0}")]
-struct StringError(String);
-
 pub(crate) fn run_command(c: &integration::Command) -> color_eyre::Result<()> {
     let output = Command::new(&c.program)
         .args(&c.args)
         .output()
-        .wrap_err("Could not spawn user provided command")
-        .with_note(|| format!("command: {c:?}"))?;
+        .wrap_err("Could not spawn user provided command")?;
     if output.status.success() {
         Ok(())
     } else {
-        let error = String::from_utf8_lossy(&output.stderr).to_string();
-        Err(eyre!("User provided command failed").error(StringError(error)))
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        Err(eyre!("User provided command failed")
+            .with_note(|| format!("stderr: {stderr}"))
+            .with_note(|| format!("stdout: {stdout}")))
     }
 }
