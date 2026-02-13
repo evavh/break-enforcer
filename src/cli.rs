@@ -1,9 +1,12 @@
 use clap::{Args, Parser, Subcommand};
-use std::num::ParseFloatError;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 
-use crate::integration::NotificationType;
+use crate::integration::{self, NotificationType};
+
+mod duration_parser;
+use duration_parser::parse_duration;
 
 #[allow(clippy::struct_field_names)]
 #[derive(Debug, Clone, Args, PartialEq, Eq)]
@@ -37,19 +40,37 @@ pub struct RunArgs {
     #[arg(long, value_name = "duration", value_parser = parse_duration, default_value = "5s")]
     pub work_reset_lead: Duration,
     /// Type of notification to get when break is about to begin.
+    /// Options: [audio, system, command(<command string>)].
+    /// The command string should be a space separated list of the program
+    /// to run and its arguments. Spaces in arguments are not supported.
+    /// Example: command(killall minecraft)
+    ///
+    /// Note:
     /// - For audio you need aplay installed.
     /// - For system you need notify-send installed.
-    #[arg(long, value_enum)]
+    #[arg(long, value_parser = parse_notification_type)]
     pub break_start_notify: Vec<NotificationType>,
     /// Type of notification to get when the break is over.
+    /// Options: [audio, system, command(<command string>)].
+    /// The command string should be a space separated list of the program
+    /// to run and its arguments. Spaces in arguments are not supported.
+    /// Example: command(killall minecraft)
+    ///
+    /// Note:
     /// - For audio you need aplay installed.
     /// - For system you need notify-send installed.
-    #[arg(long, value_enum)]
+    #[arg(long, value_parser = parse_notification_type)]
     pub break_end_notify: Vec<NotificationType>,
     /// Type of notification to get when the work time resets.
+    /// Options: [audio, system, command(<command string>)].
+    /// The command string should be a space separated list of the program
+    /// to run and its arguments. Spaces in arguments are not supported.
+    /// Example: command(killall minecraft)
+    ///
+    /// Note:
     /// - For audio you need aplay installed.
     /// - For system you need notify-send installed.
-    #[arg(long, value_enum)]
+    #[arg(long, value_parser = parse_notification_type)]
     pub work_reset_notify: Vec<NotificationType>,
     /// Enable the TCP API. Enables the `Status` command and other apps
     /// to interface using the break-enforcer library. The API only
@@ -129,84 +150,66 @@ pub struct Cli {
     pub verbose: bool,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum ParseError {
-    #[error("Could not parse the seconds, input: {1}")]
-    Second(#[source] ParseFloatError, String),
-    #[error("Could not parse the minutes, input: {1}")]
-    Minute(#[source] ParseFloatError, String),
-    #[error("Could not parse the hours, input: {1}")]
-    Hour(#[source] ParseFloatError, String),
-    #[error("Durations need a suffix like s, m or h or one seperator `:`")]
-    NoColonOrUnit(String),
+#[derive(Debug, Clone, thiserror::Error)]
+pub(crate) enum ParseError {
+    #[error("Incorrect syntax, try: command(ls -la)")]
+    InvalidSyntax,
+    #[error("Not a notification type")]
+    NotAVariant,
+    #[error("A command should be enclosed in parenthesis")]
+    MissingClosingParhen,
+    #[error("Could not parse the provided command")]
+    ParseCommand(&'static str), // too lazy for more errors enums sowwy
 }
 
-fn second_err(e: ParseFloatError, s: &str) -> ParseError {
-    ParseError::Second(e, s.to_owned())
-}
-fn minute_err(e: ParseFloatError, s: &str) -> ParseError {
-    ParseError::Minute(e, s.to_owned())
-}
-fn hour_err(e: ParseFloatError, s: &str) -> ParseError {
-    ParseError::Hour(e, s.to_owned())
-}
-
-/// Parses a string in format
-///     hh:mm:ss,
-///     mm:ss,
-///     :ss,
-pub(crate) fn parse_colon_duration(arg: &str) -> Result<f32, ParseError> {
-    let Some((rest, seconds)) = arg.rsplit_once(':') else {
-        return Err(ParseError::NoColonOrUnit(arg.to_string()));
-    };
-
-    let mut seconds = seconds.parse().map_err(|e| second_err(e, arg))?;
-    if rest.is_empty() {
-        return Ok(seconds);
+pub(crate) fn parse_notification_type(
+    arg: &str,
+) -> Result<NotificationType, ParseError> {
+    match arg.split_once("(") {
+        Some(("command", command)) => Ok(NotificationType::Command(
+            integration::Command::from_str(
+                command
+                    .strip_suffix(")")
+                    .ok_or(ParseError::MissingClosingParhen)?,
+            )
+            .map_err(ParseError::ParseCommand)?,
+        )),
+        Some((_, _command)) => Err(ParseError::InvalidSyntax),
+        None if arg == "audio" => Ok(NotificationType::Audio),
+        None if arg == "system" => Ok(NotificationType::System),
+        None => Err(ParseError::NotAVariant),
     }
-
-    let Some((hours, minutes)) = rest.rsplit_once(':') else {
-        let minutes: f32 = rest.parse().map_err(|e| minute_err(e, arg))?;
-        seconds += 60.0 * minutes;
-        return Ok(seconds);
-    };
-    seconds +=
-        60.0 * minutes.parse::<f32>().map_err(|e| minute_err(e, minutes))?;
-    if hours.is_empty() {
-        return Ok(seconds);
-    };
-    seconds +=
-        60.0 * 60.0 * hours.parse::<f32>().map_err(|e| hour_err(e, hours))?;
-    Ok(seconds)
-}
-
-/// Parse a string in two different formats to a `Duration`. The formats are:
-///  - 10h
-///  - 15m
-///  - 30s
-///  - hh:mm:ss,
-///  - mm:ss,
-///  - :ss,
-pub(crate) fn parse_duration(arg: &str) -> Result<Duration, ParseError> {
-    let seconds = if let Some(hours) = arg.strip_suffix('h') {
-        60. * 60. * hours.parse::<f32>().map_err(|e| hour_err(e, hours))?
-    } else if let Some(minutes) = arg.strip_suffix('m') {
-        60. * minutes.parse::<f32>().map_err(|e| minute_err(e, minutes))?
-    } else if let Some(seconds) = arg.strip_suffix('s') {
-        seconds.parse::<f32>().map_err(|e| second_err(e, seconds))?
-    } else {
-        parse_colon_duration(arg)?
-    };
-    Ok(std::time::Duration::from_secs_f32(seconds))
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use super::*;
 
     #[test]
-    fn test_colon_duration() {
-        assert_eq!(parse_colon_duration("10:00").unwrap(), 60. * 10.);
-        assert_eq!(parse_colon_duration("07:00").unwrap(), 60. * 7.);
+    fn test_command_parse() {
+        assert_eq!(
+            parse_notification_type("command(killall minecraft)").unwrap(),
+            NotificationType::Command(integration::Command {
+                program: "killall".to_string(),
+                args: vec!["minecraft".to_string()]
+            })
+        );
+        assert_eq!(
+            parse_notification_type("audio").unwrap(),
+            NotificationType::Audio,
+        );
+    }
+
+    #[test]
+    fn test_command_format() {
+        assert_eq!(
+            NotificationType::Command(integration::Command {
+                program: "killall".to_string(),
+                args: vec!["minecraft".to_string()]
+            })
+            .to_string(),
+            "command(killall minecraft)"
+        );
+        assert_eq!(NotificationType::Audio.to_string(), "audio");
     }
 }

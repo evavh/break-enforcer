@@ -1,4 +1,5 @@
-use std::fmt::Display;
+use std::fmt::{Display, Write};
+use std::str::FromStr;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -9,6 +10,7 @@ use color_eyre::Result;
 
 mod file_status;
 use file_status::FileStatus;
+use itertools::Itertools;
 use tracing::error;
 
 use crate::cli::RunArgs;
@@ -149,10 +151,45 @@ fn integrate(
     }
 }
 
-#[derive(Debug, Clone, clap::ValueEnum, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) enum NotificationType {
     System,
     Audio,
+    Command(Command),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct Command {
+    pub program: String,
+    pub args: Vec<String>,
+}
+
+impl Display for Command {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.program)?;
+        for arg in &self.args {
+            f.write_char(' ')?;
+            f.write_str(arg)?;
+        }
+        Ok(())
+    }
+}
+
+impl FromStr for Command {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        let mut s = s.split_whitespace();
+
+        Ok(Command {
+            program: s
+                .by_ref()
+                .next()
+                .ok_or("Not enough arguments")?
+                .to_string(),
+            args: s.map(|s| s.to_string()).collect_vec(),
+        })
+    }
 }
 
 impl Display for NotificationType {
@@ -160,6 +197,9 @@ impl Display for NotificationType {
         match self {
             NotificationType::System => f.write_str("system"),
             NotificationType::Audio => f.write_str("audio"),
+            NotificationType::Command(command) => {
+                f.write_fmt(format_args!("command({command})"))
+            }
         }
     }
 }
@@ -171,6 +211,8 @@ impl NotificationType {
                 .wrap_err("Could not send system notification")?,
             NotificationType::Audio => notification::beep_all_users()
                 .wrap_err("Could not play audio notification")?,
+            NotificationType::Command(s) => notification::run_command(s)
+                .wrap_err("Could not run user provided command")?,
         }
         Ok(())
     }
@@ -181,6 +223,7 @@ impl NotificationType {
                 .wrap_err("dependency missing for notification")?,
             NotificationType::Audio => notification::beep_available()
                 .wrap_err("dependency missing for beep")?,
+            NotificationType::Command(_) => (),
         }
         Ok(())
     }

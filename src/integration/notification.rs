@@ -5,6 +5,8 @@ use std::process::{Command, Stdio};
 use color_eyre::eyre::{eyre, Context};
 use color_eyre::{Result, Section};
 
+use crate::integration;
+
 struct User {
     id: String,
     name: String,
@@ -127,4 +129,22 @@ pub(crate) fn notify_available() -> color_eyre::Result<()> {
         "notify-send ",
         "provided by the package libnotify-bin or libnotify",
     )
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct StringError(String);
+
+pub(crate) fn run_command(c: &integration::Command) -> color_eyre::Result<()> {
+    let output = Command::new(&c.program)
+        .args(&c.args)
+        .output()
+        .wrap_err("Could not spawn user provided command")
+        .with_note(|| format!("command: {c:?}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let error = String::from_utf8_lossy(&output.stderr).to_string();
+        Err(eyre!("User provided command failed").error(StringError(error)))
+    }
 }
