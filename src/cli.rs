@@ -131,9 +131,9 @@ impl Commands {
 ///  - hh:mm:ss, where hh and mm are optional however you
 ///    do need at least one `:`
 ///    * example: 1:30:15
-///         one and a halve hour and 15 seconds
+///      one and a halve hour and 15 seconds
 ///    * example: 10:40
-///         ten minutes and 40 seconds
+///      ten minutes and 40 seconds
 ///
 #[derive(Parser, Debug)]
 #[command(version, about, verbatim_doc_comment)]

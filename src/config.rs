@@ -1,4 +1,4 @@
-use color_eyre::eyre::{eyre, Context};
+use color_eyre::eyre::{Context, eyre};
 use color_eyre::{Result, Section};
 use serde::{Deserialize, Serialize};
 
@@ -33,7 +33,7 @@ pub(crate) fn read(custom_path: Option<PathBuf>) -> Result<Vec<InputFilter>> {
         Err(err) => {
             return Err(err)
                 .wrap_err("Could not read config which might exist")
-                .with_note(|| format!("path: {}", path.display()))
+                .with_note(|| format!("path: {}", path.display()));
         }
     };
 
@@ -51,11 +51,11 @@ pub(crate) fn write(
             .wrap_err("Could not serialize list of devices to toml")?;
 
     let path = custom_path.unwrap_or_else(setup_default_path);
-    if let Some(dir) = path.parent() {
-        if !dir.is_dir() {
-            return Err(eyre!("Dir does not exist!")
-                .with_note(|| format!("dir: {}", dir.display())));
-        }
+    if let Some(dir) = path.parent()
+        && !dir.is_dir()
+    {
+        return Err(eyre!("Dir does not exist!")
+            .with_note(|| format!("dir: {}", dir.display())));
     }
 
     fs::write(path, data.as_bytes())

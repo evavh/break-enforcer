@@ -20,6 +20,7 @@ pub struct InactivityTracker {
     reset_notify: mpsc::Receiver<color_eyre::Result<()>>,
 }
 
+#[derive(Debug)]
 pub enum TrackResult {
     ShouldReset,
     ShouldBreak { user_idle: Duration },

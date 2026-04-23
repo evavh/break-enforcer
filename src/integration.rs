@@ -1,6 +1,6 @@
 use std::fmt::{Display, Write};
 use std::str::FromStr;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -13,15 +13,14 @@ use file_status::FileStatus;
 use itertools::Itertools;
 use tracing::error;
 
+use crate::InstantExt;
 use crate::cli::RunArgs;
-use crate::DurationUntil;
 mod notification;
 pub(crate) mod tcp_api;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum State {
     Waiting,
-    WaitingLongReset { long_break_duration: Duration },
     Work { next_break: Instant },
     Break { next_work: Instant },
 }
@@ -31,7 +30,6 @@ impl State {
             State::Waiting => StateUpdate::Reset,
             State::Work { .. } => StateUpdate::BreakEnded,
             State::Break { .. } => StateUpdate::BreakStarted,
-            State::WaitingLongReset { .. } => StateUpdate::LongReset,
         }
     }
 }
@@ -60,7 +58,9 @@ impl NotifyConfig {
                 self.last_issued = Instant::now();
                 for notify_type in &self.types {
                     if let Err(report) = notify_type.notify(&msg) {
-                        error!("Failed to send {event_description} notification: {report:?}")
+                        error!(
+                            "Failed to send {event_description} notification: {report:?}"
+                        )
                     }
                 }
             }
@@ -123,16 +123,18 @@ fn integrate(
 
         next_update_needed_in = match state {
             State::Waiting => Duration::MAX,
-            State::WaitingLongReset { .. }
-            | State::Work { .. }
-            | State::Break { .. } => Duration::from_secs(1),
+            State::Work { .. } | State::Break { .. } => Duration::from_secs(1),
         };
 
-        let idle_since = idle_since.lock().unwrap().clone();
-        let statusbar_msg =
-            format_statusbar_msg(&state, idle_since.elapsed(), break_duration);
+        let idle_since = *idle_since.lock().unwrap();
+        let statusbar_msg = format_statusbar_msg(
+            &state,
+            idle_since.elapsed(),
+            break_duration,
+            args.long_break_duration,
+        );
         if let Some(status) = &mut file_status {
-            status.update(&statusbar_msg);
+            status.update_msg(&statusbar_msg);
         }
         if let Some(status) = &mut api_status {
             status.update_msg(&statusbar_msg);
@@ -213,7 +215,7 @@ impl NotificationType {
                 .wrap_err("Could not play audio notification"),
             NotificationType::Command(c) => notification::run_command(c)
                 .wrap_err("Could not run user provided command")
-                .with_note(|| format!("command: {c:?}"))
+                .with_note(|| format!("command: {c:?}")),
         }
     }
 
@@ -245,10 +247,11 @@ fn notify_if_needed(
         notify.break_end.emit_if_needed(next_work, "unlocking");
     }
 
-    if notify.state_notifications && state_changed {
-        if let Err(report) = notification::notify(&statusbar_msg) {
-            error!("Failed to send state change notification: {report}")
-        }
+    if notify.state_notifications
+        && state_changed
+        && let Err(report) = notification::notify(&statusbar_msg)
+    {
+        error!("Failed to send state change notification: {report}")
     }
 }
 
@@ -256,31 +259,28 @@ fn format_statusbar_msg(
     state: &State,
     idle_for: Duration,
     break_duration: Duration,
+    long_break_duration: Option<Duration>,
 ) -> String {
-    let msg = match *state {
-        State::Waiting => String::from("-"),
-        State::WaitingLongReset {
-            long_break_duration,
-        } => {
-            let break_dur = long_break_duration.saturating_sub(idle_for);
-            let break_dur = fmt_dur(break_dur);
-            format!("long reset in {}", break_dur)
+    match *dbg!(state) {
+        State::Waiting
+            if let Some(long) = long_break_duration
+                && idle_for < long =>
+        {
+            format!("long reset in {}", fmt_dur(long - idle_for))
         }
+        State::Waiting => String::from("-"),
         State::Work { next_break } => {
             if idle_for > Duration::from_secs(30) {
                 let break_dur = break_duration.saturating_sub(idle_for);
-                let break_dur = fmt_dur(break_dur);
-                format!("idle, reset in {}", break_dur)
+                format!("idle, reset in {}", fmt_dur(break_dur))
             } else {
-                let next_break = fmt_dur(next_break.duration_until());
-                format!("break in {}", next_break)
+                format!("break in {}", fmt_dur(next_break.duration_until()))
             }
         }
         State::Break { next_work } => {
             format!("unlocks in {}", fmt_dur(next_work.duration_until()))
         }
-    };
-    msg
+    }
 }
 
 impl Status {
@@ -343,15 +343,6 @@ impl Status {
 
     pub(crate) fn set_waiting(&mut self) {
         self.send(State::Waiting);
-    }
-
-    pub(crate) fn set_waiting_long_reset(
-        &mut self,
-        long_break_duration: Duration,
-    ) {
-        self.send(State::WaitingLongReset {
-            long_break_duration,
-        });
     }
 
     pub(crate) fn set_working(&mut self, next_break: Instant) {

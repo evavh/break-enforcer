@@ -1,20 +1,21 @@
+use std::iter;
 use std::path::PathBuf;
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
-use color_eyre::eyre::{eyre, Context};
+use color_eyre::eyre::{Context, eyre};
 use color_eyre::{Result, Section};
-use tracing::trace;
 
 use crate::check_inputs::{InactivityTracker, InputResult, TrackResult};
 use crate::cli::RunArgs;
-use crate::config;
+use crate::config::InputFilter;
 use crate::integration::Status;
+use crate::watch_and_block::{LockGuard, OnlineDevices};
+use crate::{InstantExt, config};
 use crate::{check_inputs, watch_and_block};
-use std::{sync::mpsc::Receiver, thread};
+use std::sync::mpsc::Receiver;
 
 pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
-    // TODO: use args.<member> instead
     let RunArgs {
         work_duration,
         break_duration,
@@ -24,9 +25,6 @@ pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
         break_end_notify: ref lock_release,
         ..
     } = args;
-
-    trace!("Long break: {long_break_duration:?}");
-    trace!("Work between: {work_between_long_breaks:?}");
 
     let short_break_duration = break_duration;
     if let Some(long_break_duration) = long_break_duration {
@@ -55,92 +53,176 @@ pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     let (recv_any_input, recv_any_input2) =
         check_inputs::watcher(new, to_block.clone());
 
-    let mut worked_since_long_break = Duration::from_secs(0);
-    let mut inactivity_tracker =
+    let inactivity_tracker =
         InactivityTracker::new(recv_any_input2, short_break_duration);
-
     let idle = inactivity_tracker.idle_handle();
+
+    let tracking = UserTracking {
+        watcher: inactivity_tracker,
+        by: recv_any_input,
+    };
+
+    let devices = Devices {
+        list: to_block,
+        online_devices,
+    };
+
+    let mut breaks = iter::once(Break {
+        duration: short_break_duration,
+        between: work_duration,
+        next_at: Instant::now(),
+    })
+    .chain(long_break_duration.zip(work_between_long_breaks).map(
+        |(duration, between)| Break {
+            duration,
+            between,
+            next_at: Instant::now(),
+        },
+    ))
+    .collect::<Vec<_>>();
+
     let mut status = Status::new(&args, idle)
         .wrap_err("Could not setup status reporting")?;
 
+    state_machine(tracking, devices, &mut breaks, |change| match change {
+        NewState::Idle => status.set_waiting(),
+        NewState::Running { next } => status.set_working(next.next_at),
+        NewState::Break { current } => {
+            status.set_break(Instant::now() + current.duration)
+        }
+    })
+}
+
+struct Devices {
+    list: Vec<InputFilter>,
+    online_devices: OnlineDevices,
+}
+
+impl Devices {
+    fn lock(&self) -> Result<Vec<LockGuard>> {
+        self.list
+            .iter()
+            .map(|device_id| {
+                self.online_devices
+                    .lock(device_id.clone())
+                    .wrap_err("failed to lock one of the inputs")
+            })
+            .collect()
+    }
+}
+
+#[derive(Clone)]
+struct Break {
+    /// the break takes this long, locking input devices for this time
+    duration: Duration,
+    /// time between these breaks, also known as the work period
+    between: Duration,
+    /// when the next occurrence of this break will happen
+    /// this is delayed if idle time occurs
+    next_at: Instant,
+}
+
+enum NewState {
+    Idle,
+    Running { next: Break },
+    Break { current: Break },
+}
+
+fn state_machine(
+    mut tracking: UserTracking,
+    devices: Devices,
+    breaks: &mut [Break],
+    mut on_state_change: impl FnMut(NewState),
+) -> Result<()> {
     loop {
-        if worked_since_long_break > Duration::from_secs(0) {
-            if let Some(long_break_duration) = long_break_duration {
-                status.set_waiting_long_reset(long_break_duration);
-                match wait_for_user_activity(
-                    &recv_any_input,
-                    long_break_duration - short_break_duration,
-                )
-                .wrap_err("Could not wait for activity")?
-                {
-                    IdleResult::Activity => (),
-                    IdleResult::Timeout => {
-                        trace!("Idle > long break, resetting total work time");
-                        worked_since_long_break = Duration::from_secs(0);
-                        continue;
-                    }
-                }
-            }
-        } else {
-            status.set_waiting();
-            wait_for_user_activity(&recv_any_input, Duration::MAX)
-                .wrap_err("Could not wait for activity")?;
+        // Idle
+        on_state_change(NewState::Idle);
+        let idle_time = tracking.idle_until_input()?;
+        breaks.iter_mut().for_each(|b| b.next_at += idle_time);
+
+        // Running
+        let closest_break = breaks
+            .iter()
+            .min_by_key(|b| b.next_at) // closest break
+            .expect("breaks may not be empty")
+            .clone();
+        on_state_change(NewState::Running {
+            next: closest_break.clone(),
+        });
+        if let ResetOrBreak::Reset { idle_time } =
+            tracking.reset_or_time_for_break(&closest_break)?
+        {
+            breaks.iter_mut().for_each(|b| b.next_at += idle_time);
+            continue;
         }
 
-        let work_start = Instant::now();
-        status.set_working(work_start + work_duration);
+        // Break
+        on_state_change(NewState::Break {
+            current: closest_break.clone(),
+        });
+        let _guard = devices.lock();
+        std::thread::sleep(closest_break.duration - idle_time);
+    }
+}
 
-        let idle = match inactivity_tracker.reset_or_timeout(work_duration) {
-            TrackResult::Error(e) => {
-                Err(e).wrap_err("Could not track inactivity")?
-            }
-            TrackResult::ShouldReset => {
-                // we reset after short_break_duration so we know the user has
-                // been inactive for that long
-                worked_since_long_break +=
-                    work_start.elapsed().saturating_sub(short_break_duration);
-                continue;
-            }
-            TrackResult::ShouldBreak { user_idle } => {
-                worked_since_long_break += work_start.elapsed() - user_idle;
-                user_idle
-            }
-        };
+struct UserTracking {
+    watcher: InactivityTracker,
+    by: Receiver<InputResult>,
+}
 
-        let mut locks = Vec::new();
-        for device_id in to_block.iter().cloned() {
-            locks.push(
-                online_devices
-                    .lock(device_id)
-                    .wrap_err("failed to lock one of the inputs")?,
-            );
-        }
-
-        trace!("Worked since long break: {worked_since_long_break:?}");
-        let break_duration = match (long_break_duration, work_between_long_breaks) {
-            (Some(long_break_duration), Some(work_between_long_breaks))
-                // There is always some idle time before the break,
-                // so we add some margin
-                if worked_since_long_break + work_duration / 10
-                    >= work_between_long_breaks =>
-            {
-                trace!("Starting long break, resetting total work time");
-                worked_since_long_break = Duration::from_secs(0);
-                long_break_duration - idle
-            }
-            _ => {
-                trace!("Starting short break");
-                short_break_duration - idle
-            }
-        };
-
-        status.set_break(Instant::now() + break_duration);
-        thread::sleep(break_duration);
-
-        for lock in locks {
-            lock.unlock()?;
+impl UserTracking {
+    fn idle_until_input(&self) -> Result<Duration> {
+        let before_activity = Instant::now();
+        match wait_for_user_activity(&self.by, Duration::MAX)
+            .wrap_err("Could not wait for activity")?
+        {
+            IdleResult::Activity => Ok(before_activity.elapsed()),
+            IdleResult::Timeout => unreachable!(),
         }
     }
+
+    fn reset_or_time_for_break(
+        &mut self,
+        Break {
+            next_at: next_break,
+            between,
+            ..
+        }: &Break,
+    ) -> Result<ResetOrBreak> {
+        while next_break.in_the_future() {
+            match was_idle_or_timeout(&mut self.watcher, next_break)? {
+                IdleOrTimeout::Timeout => (),
+                IdleOrTimeout::IdleFor(idle_time) if idle_time > *between => {
+                    return Ok(ResetOrBreak::Reset { idle_time });
+                }
+                IdleOrTimeout::IdleFor(_) => (),
+            }
+        }
+        Ok(ResetOrBreak::Break)
+    }
+}
+
+fn was_idle_or_timeout(
+    watcher: &mut InactivityTracker,
+    next_break: &Instant,
+) -> Result<IdleOrTimeout> {
+    match watcher.reset_or_timeout(next_break.duration_until()) {
+        TrackResult::ShouldReset => Ok(IdleOrTimeout::Timeout),
+        TrackResult::ShouldBreak { user_idle } => {
+            Ok(IdleOrTimeout::IdleFor(user_idle))
+        }
+        TrackResult::Error(report) => Err(report),
+    }
+}
+
+enum IdleOrTimeout {
+    Timeout,
+    IdleFor(Duration),
+}
+
+enum ResetOrBreak {
+    Reset { idle_time: Duration },
+    Break,
 }
 
 enum IdleResult {

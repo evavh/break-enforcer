@@ -32,7 +32,7 @@ impl FileStatus {
         Ok(Self { file, max_len: 0 })
     }
 
-    pub fn update(&mut self, msg: &str) {
+    pub fn update_msg(&mut self, msg: &str) {
         self.max_len = self.max_len.max(msg.chars().count());
 
         // can never shrink file as the reader might read the just truncated
