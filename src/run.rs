@@ -8,12 +8,13 @@ use color_eyre::{Result, Section};
 
 use crate::check_inputs::{InactivityTracker, InputResult, TrackResult};
 use crate::cli::RunArgs;
-use crate::config::InputFilter;
 use crate::integration::Status;
-use crate::watch_and_block::{LockGuard, OnlineDevices};
+use crate::run::state_machine::{Devices, UserTracking};
 use crate::{InstantExt, config};
 use crate::{check_inputs, watch_and_block};
 use std::sync::mpsc::Receiver;
+
+mod state_machine;
 
 pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     let RunArgs {
@@ -57,12 +58,12 @@ pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
         InactivityTracker::new(recv_any_input2, short_break_duration);
     let idle = inactivity_tracker.idle_handle();
 
-    let tracking = UserTracking {
+    let tracking = RealUserTracking {
         watcher: inactivity_tracker,
         by: recv_any_input,
     };
 
-    let devices = Devices {
+    let devices = RealDevices {
         list: to_block,
         online_devices,
     };
@@ -84,7 +85,7 @@ pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     let mut status = Status::new(&args, idle)
         .wrap_err("Could not setup status reporting")?;
 
-    state_machine(tracking, devices, &mut breaks, |change| match change {
+    state_machine::run(tracking, devices, &mut breaks, |change| match change {
         NewState::Idle => status.set_waiting(),
         NewState::Running { next } => status.set_working(next.next_at),
         NewState::Break { current } => {
@@ -93,13 +94,14 @@ pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     })
 }
 
-struct Devices {
-    list: Vec<InputFilter>,
-    online_devices: OnlineDevices,
+struct RealDevices {
+    list: Vec<crate::config::InputFilter>,
+    online_devices: crate::watch_and_block::OnlineDevices,
 }
 
-impl Devices {
-    fn lock(&self) -> Result<Vec<LockGuard>> {
+impl Devices for RealDevices {
+    type LockGuard = crate::watch_and_block::LockGuard;
+    fn lock(&self) -> Result<Vec<crate::watch_and_block::LockGuard>> {
         self.list
             .iter()
             .map(|device_id| {
@@ -111,7 +113,7 @@ impl Devices {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug)]
 struct Break {
     /// the break takes this long, locking input devices for this time
     duration: Duration,
@@ -122,55 +124,19 @@ struct Break {
     next_at: Instant,
 }
 
+#[derive(Debug, Clone, Copy)]
 enum NewState {
     Idle,
     Running { next: Break },
     Break { current: Break },
 }
 
-fn state_machine(
-    mut tracking: UserTracking,
-    devices: Devices,
-    breaks: &mut [Break],
-    mut on_state_change: impl FnMut(NewState),
-) -> Result<()> {
-    loop {
-        // Idle
-        on_state_change(NewState::Idle);
-        let idle_time = tracking.idle_until_input()?;
-        breaks.iter_mut().for_each(|b| b.next_at += idle_time);
-
-        // Running
-        let closest_break = breaks
-            .iter()
-            .min_by_key(|b| b.next_at) // closest break
-            .expect("breaks may not be empty")
-            .clone();
-        on_state_change(NewState::Running {
-            next: closest_break.clone(),
-        });
-        if let ResetOrBreak::Reset { idle_time } =
-            tracking.reset_or_time_for_break(&closest_break)?
-        {
-            breaks.iter_mut().for_each(|b| b.next_at += idle_time);
-            continue;
-        }
-
-        // Break
-        on_state_change(NewState::Break {
-            current: closest_break.clone(),
-        });
-        let _guard = devices.lock();
-        std::thread::sleep(closest_break.duration - idle_time);
-    }
-}
-
-struct UserTracking {
+struct RealUserTracking {
     watcher: InactivityTracker,
     by: Receiver<InputResult>,
 }
 
-impl UserTracking {
+impl UserTracking for RealUserTracking {
     fn idle_until_input(&self) -> Result<Duration> {
         let before_activity = Instant::now();
         match wait_for_user_activity(&self.by, Duration::MAX)

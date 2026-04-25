@@ -17,6 +17,7 @@ mod status;
 mod tcp_api_config;
 mod watch_and_block;
 mod wizard;
+mod mockies;
 
 fn main() -> color_eyre::Result<()> {
     color_eyre::config::HookBuilder::default()
@@ -71,6 +72,8 @@ fn main() -> color_eyre::Result<()> {
 trait InstantExt {
     fn duration_until(&self) -> Duration;
     fn in_the_future(&self) -> bool;
+    #[cfg(test)]
+    fn in_the_past(&self) -> bool;
 }
 
 impl InstantExt for Instant {
@@ -79,5 +82,9 @@ impl InstantExt for Instant {
     }
     fn in_the_future(&self) -> bool {
         Instant::now().elapsed().is_zero()
+    }
+    #[cfg(test)]
+    fn in_the_past(&self) -> bool {
+        Instant::now().elapsed() > Duration::ZERO
     }
 }

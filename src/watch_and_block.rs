@@ -5,12 +5,11 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
-use std::sync::{mpsc, Arc, Mutex};
-use std::time::Duration;
+use std::sync::mpsc::{Receiver, RecvError, Sender};
+use std::sync::{Arc, Mutex, mpsc};
 use std::{fs, thread};
 
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use color_eyre::eyre::Context;
 use color_eyre::{Result, Section};
 use inotify::{EventMask, Inotify, WatchMask};
@@ -132,6 +131,8 @@ pub struct LockGuard {
 
 impl LockGuard {
     pub(crate) fn unlock(mut self) -> Result<()> {
+
+
         let (tx, rx) = std::sync::mpsc::channel();
         self.tx
             .send(Event::UnLockRequested(self.filter.clone(), tx))
@@ -332,6 +333,60 @@ pub struct NewInput {
 
 pub fn devices() -> (OnlineDevices, Receiver<NewInput>) {
     let (order_tx, order_rx) = mpsc::channel();
+
+    let (new_dev_tx, new_dev_rx) = mpsc::channel();
+    let mut online = send_initial_devices(&order_tx, &new_dev_tx);
+    thread::spawn(move || {
+        send_new_devices(order_tx);
+    });
+
+    let mut locked = HashSet::new();
+    let online_clone = online.clone();
+    thread::spawn(move || {
+        loop {
+            match order_rx.recv() {
+                Ok(Event::LockRequested(filter, answer)) => {
+                    let res = online.lock_all_matching(&filter);
+                    locked.insert(filter);
+                    answer.send(res).expect("lock fn does not panic");
+                }
+                Ok(Event::UnLockRequested(filter, answer)) => {
+                    locked.remove(&filter);
+                    let res = online.unlock_all_matching(&filter);
+                    answer.send(res).expect("unlock fn does not panic");
+                }
+                Ok(Event::DevAdded(event_path)) => {
+                    add_device(&mut online, &new_dev_tx, event_path);
+                    for filter in &locked {
+                        if let Err(e) = online.lock_all_matching(filter) {
+                            error!(
+                                "Failed to lock devices matching filter, error: {e:?}"
+                            );
+                            online.inner.lock().unwrap().status = Err(e);
+                        }
+                    }
+                }
+                Ok(Event::DevRemoved(event_path)) => {
+                    online.remove(&event_path);
+                }
+                Ok(Event::DevError(error)) => {
+                    // next time online devices is queried it will report this error
+                    online.inner.lock().unwrap().status = error;
+                }
+
+                Err(RecvError) => return,
+            }
+        }
+    });
+
+    (online_clone, new_dev_rx)
+}
+
+const DEV_DIR: &str = "/dev/input";
+fn send_initial_devices(
+    order_tx: &Sender<Event>,
+    new_dev_tx: &Sender<NewInput>,
+) -> OnlineDevices {
     let mut online = OnlineDevices {
         tx: order_tx.clone(),
         inner: Arc::new(Mutex::new(Inner {
@@ -340,56 +395,6 @@ pub fn devices() -> (OnlineDevices, Receiver<NewInput>) {
         })),
     };
 
-    let (new_dev_tx, new_dev_rx) = mpsc::channel();
-    send_initial_devices(&mut online, &new_dev_tx);
-    thread::spawn(move || {
-        send_new_devices(&order_tx);
-    });
-
-    let mut locked = HashSet::new();
-    let mut online2 = online.clone();
-    thread::spawn(move || loop {
-        match order_rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(Event::LockRequested(filter, answer)) => {
-                let res = online2.lock_all_matching(&filter);
-                locked.insert(filter);
-                answer.send(res).expect("lock fn does not panic");
-            }
-            Ok(Event::UnLockRequested(filter, answer)) => {
-                locked.remove(&filter);
-                let res = online2.unlock_all_matching(&filter);
-                answer.send(res).expect("unlock fn does not panic");
-            }
-            Ok(Event::DevAdded(event_path)) => {
-                add_device(&mut online2, &new_dev_tx, event_path);
-                for filter in &locked {
-                    if let Err(e) = online2.lock_all_matching(filter) {
-                        error!("Failed to lock devices matching filter, error: {e:?}");
-                        online2.inner.lock().unwrap().status = Err(e);
-                    }
-                }
-            }
-            Ok(Event::DevRemoved(event_path)) => {
-                online2.remove(&event_path);
-            }
-            Ok(Event::DevError(error)) => {
-                // next time online devices is queried it will report this error
-                online2.inner.lock().unwrap().status = error;
-            }
-
-            Err(RecvTimeoutError::Timeout) => continue,
-            Err(RecvTimeoutError::Disconnected) => return,
-        }
-    });
-
-    (online, new_dev_rx)
-}
-
-const DEV_DIR: &str = "/dev/input";
-fn send_initial_devices(
-    online: &mut OnlineDevices,
-    new_dev_tx: &Sender<NewInput>,
-) {
     for entry in fs::read_dir(DEV_DIR).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
@@ -398,9 +403,11 @@ fn send_initial_devices(
         // duplicates of the event<number> devices. Therefore we
         // do not add them.
         if fname.as_bytes().starts_with(b"event") {
-            add_device(online, new_dev_tx, path);
+            add_device(&mut online, new_dev_tx, path);
         }
     }
+
+    online
 }
 
 type DeviceName = String;
@@ -435,7 +442,7 @@ fn add_device(
     }
 }
 
-fn send_new_devices(tx: &Sender<Event>) {
+fn send_new_devices(tx: Sender<Event>) {
     let mut inotify = Inotify::init().unwrap();
     let mut buffer = [0; 1024];
 

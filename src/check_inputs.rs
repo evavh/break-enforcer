@@ -99,7 +99,6 @@ fn watch_activity(
 
 pub type InputResult = Result<(), Arc<io::Error>>;
 
-// TODO: Windows version
 pub(crate) fn watcher(
     just_connected: Receiver<NewInput>,
     to_block: Vec<InputFilter>,
@@ -129,7 +128,6 @@ pub(crate) fn watcher(
     (rx1, rx2)
 }
 
-// TODO: Windows version
 fn monitor_input(
     input: NewInput,
     tx1: &Sender<InputResult>,
