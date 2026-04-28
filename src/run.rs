@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use color_eyre::eyre::{Context, eyre};
 use color_eyre::{Result, Section};
 
-use crate::check_inputs::{InactivityTracker, InputResult, TrackResult};
+use crate::check_inputs::{InactivityTracker, , TrackResult};
 use crate::cli::RunArgs;
 use crate::integration::Status;
 use crate::run::state_machine::{Devices, UserTracking};
@@ -15,6 +15,7 @@ use crate::{check_inputs, watch_and_block};
 use std::sync::mpsc::Receiver;
 
 mod state_machine;
+pub use state_machine::Time;
 
 pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     let RunArgs {
@@ -71,15 +72,12 @@ pub(crate) fn run(args: RunArgs, config_path: Option<PathBuf>) -> Result<()> {
     let mut breaks = iter::once(Break {
         duration: short_break_duration,
         between: work_duration,
-        next_at: Instant::now(),
     })
-    .chain(long_break_duration.zip(work_between_long_breaks).map(
-        |(duration, between)| Break {
-            duration,
-            between,
-            next_at: Instant::now(),
-        },
-    ))
+    .chain(
+        long_break_duration
+            .zip(work_between_long_breaks)
+            .map(|(duration, between)| Break { duration, between }),
+    )
     .collect::<Vec<_>>();
 
     let mut status = Status::new(&args, idle)
@@ -119,21 +117,27 @@ struct Break {
     duration: Duration,
     /// time between these breaks, also known as the work period
     between: Duration,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ScheduledBreak<T: Time = std::time::Instant> {
+    duration: Duration,
+    between: Duration,
     /// when the next occurrence of this break will happen
     /// this is delayed if idle time occurs
-    next_at: Instant,
+    next_at: T,
 }
 
 #[derive(Debug, Clone, Copy)]
-enum NewState {
+enum NewState<T: Time = std::time::Instant> {
     Idle,
-    Running { next: Break },
-    Break { current: Break },
+    Running { next: ScheduledBreak<T> },
+    Break { current: ScheduledBreak<T> },
 }
 
 struct RealUserTracking {
     watcher: InactivityTracker,
-    by: Receiver<InputResult>,
+    by: Receiver<Result<(), Arc<io::Error>>>,
 }
 
 impl UserTracking for RealUserTracking {
@@ -147,13 +151,13 @@ impl UserTracking for RealUserTracking {
         }
     }
 
-    fn reset_or_time_for_break(
+    fn reset_or_time_for_break<T: Time>(
         &mut self,
-        Break {
+        ScheduledBreak {
             next_at: next_break,
             between,
             ..
-        }: &Break,
+        }: &ScheduledBreak<T>,
     ) -> Result<ResetOrBreak> {
         while next_break.in_the_future() {
             match was_idle_or_timeout(&mut self.watcher, next_break)? {
@@ -170,14 +174,25 @@ impl UserTracking for RealUserTracking {
 
 fn was_idle_or_timeout(
     watcher: &mut InactivityTracker,
-    next_break: &Instant,
+    timeout: &impl Time,
 ) -> Result<IdleOrTimeout> {
-    match watcher.reset_or_timeout(next_break.duration_until()) {
+    watcher.clear_stale()?;
+
+
+    let res = match watcher.reset_notify.recv_timeout(timeout.duration_until()) {
+            Ok(Ok(())) => TrackResult::ShouldReset,
+            Ok(Err(e)) => return Err(e),
+            Err(RecvTimeoutError::Timeout) => TrackResult::Timeout {
+                user_idle: watcher.idle_since.lock().unwrap().elapsed(),
+            },
+            Err(RecvTimeoutError::Disconnected) => unreachable!(),
+        }?;
+
+    match res {
         TrackResult::ShouldReset => Ok(IdleOrTimeout::Timeout),
-        TrackResult::ShouldBreak { user_idle } => {
+        TrackResult::Timeout { user_idle } => {
             Ok(IdleOrTimeout::IdleFor(user_idle))
         }
-        TrackResult::Error(report) => Err(report),
     }
 }
 
@@ -186,6 +201,7 @@ enum IdleOrTimeout {
     IdleFor(Duration),
 }
 
+#[derive(Debug)]
 enum ResetOrBreak {
     Reset { idle_time: Duration },
     Break,
@@ -197,7 +213,7 @@ enum IdleResult {
 }
 
 fn wait_for_user_activity(
-    recv_any_input: &Receiver<InputResult>,
+    recv_any_input: &Receiver<Result<(), Arc<io::Error>>>,
     timeout: Duration,
 ) -> color_eyre::Result<IdleResult> {
     loop {

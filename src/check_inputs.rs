@@ -2,10 +2,10 @@ use std::{
     fs::{self, File},
     io::{self, Read},
     sync::{
-        mpsc::{
-            self, channel, Receiver, RecvTimeoutError, Sender, TryRecvError,
-        },
         Arc, Mutex,
+        mpsc::{
+            self, Receiver, RecvTimeoutError, Sender, TryRecvError, channel,
+        },
     },
     thread,
     time::{Duration, Instant},
@@ -16,15 +16,14 @@ use color_eyre::eyre::Context;
 use crate::{config::InputFilter, watch_and_block::NewInput};
 
 pub struct InactivityTracker {
-    idle_since: Arc<Mutex<Instant>>,
-    reset_notify: mpsc::Receiver<color_eyre::Result<()>>,
+    pub idle_since: Arc<Mutex<Instant>>,
+    pub reset_notify: mpsc::Receiver<color_eyre::Result<()>>,
 }
 
 #[derive(Debug)]
 pub enum TrackResult {
     ShouldReset,
-    ShouldBreak { user_idle: Duration },
-    Error(color_eyre::Report),
+    Timeout { user_idle: Duration },
 }
 
 impl InactivityTracker {
@@ -46,7 +45,8 @@ impl InactivityTracker {
             reset_notify: rx,
         }
     }
-    pub fn reset_or_timeout(&mut self, work_duration: Duration) -> TrackResult {
+
+    pub fn clear_stale(&mut self) -> color_eyre::Result<()> {
         // Empty the reset_notify. At this point in the program we just left a
         // period without input (waiting or break). Therefore there has been no user
         // activity until here. Any reset notification received after emptying
@@ -54,19 +54,24 @@ impl InactivityTracker {
         // therefore at least a break duration must have elapsed.
         loop {
             match self.reset_notify.try_recv() {
-                Ok(Err(e)) => return TrackResult::Error(e),
+                Ok(Err(e)) => return Err(e),
                 Ok(Ok(())) => (),
-                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Empty) => return Ok(()),
                 Err(TryRecvError::Disconnected) => unreachable!(),
             }
         }
+    }
 
+    pub fn reset_or_timeout(
+        &mut self,
+        work_duration: Duration,
+    ) -> color_eyre::Result<TrackResult> {
         match self.reset_notify.recv_timeout(work_duration) {
-            Ok(Ok(())) => TrackResult::ShouldReset,
-            Ok(Err(e)) => TrackResult::Error(e),
-            Err(RecvTimeoutError::Timeout) => TrackResult::ShouldBreak {
+            Ok(Ok(())) => Ok(TrackResult::ShouldReset),
+            Ok(Err(e)) => return Err(e),
+            Err(RecvTimeoutError::Timeout) => Ok(TrackResult::Timeout {
                 user_idle: self.idle_since.lock().unwrap().elapsed(),
-            },
+            }),
             Err(RecvTimeoutError::Disconnected) => unreachable!(),
         }
     }
@@ -106,23 +111,25 @@ pub(crate) fn watcher(
     let (tx1, rx1) = channel();
     let (tx2, rx2) = channel();
 
-    thread::spawn(move || loop {
-        let new_device = just_connected
-            .recv()
-            .expect("only disconnects at program exit");
-        if !to_block
-            .iter()
-            .filter(|filter| filter.id == new_device.id)
-            .any(|filter| filter.names.contains(&new_device.name))
-        {
-            continue;
-        }
+    thread::spawn(move || {
+        loop {
+            let new_device = just_connected
+                .recv()
+                .expect("only disconnects at program exit");
+            if !to_block
+                .iter()
+                .filter(|filter| filter.id == new_device.id)
+                .any(|filter| filter.names.contains(&new_device.name))
+            {
+                continue;
+            }
 
-        let tx1 = tx1.clone();
-        let tx2 = tx2.clone();
-        thread::Builder::new()
-            .spawn(move || monitor_input(new_device, &tx1, &tx2))
-            .expect("the OS should be able to spawn a thread");
+            let tx1 = tx1.clone();
+            let tx2 = tx2.clone();
+            thread::Builder::new()
+                .spawn(move || monitor_input(new_device, &tx1, &tx2))
+                .expect("the OS should be able to spawn a thread");
+        }
     });
 
     (rx1, rx2)

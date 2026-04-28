@@ -7,17 +7,19 @@ use color_eyre::eyre::Context;
 use color_eyre::{Section, eyre::eyre};
 use tracing_subscriber::fmt::time::uptime;
 
+use crate::run::Time;
+
 mod check_inputs;
 mod cli;
 mod config;
 mod install;
 mod integration;
+mod mockies;
 mod run;
 mod status;
 mod tcp_api_config;
 mod watch_and_block;
 mod wizard;
-mod mockies;
 
 fn main() -> color_eyre::Result<()> {
     color_eyre::config::HookBuilder::default()
@@ -76,9 +78,9 @@ trait InstantExt {
     fn in_the_past(&self) -> bool;
 }
 
-impl InstantExt for Instant {
+impl<T: Time> InstantExt for T {
     fn duration_until(&self) -> Duration {
-        self.saturating_duration_since(Instant::now())
+        self.saturating_duration_since(T::now())
     }
     fn in_the_future(&self) -> bool {
         Instant::now().elapsed().is_zero()
