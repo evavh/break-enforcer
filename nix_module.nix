@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  inputs,
   ...
 }:
 
@@ -105,7 +106,7 @@ in
       serviceConfig = {
         Type = "simple";
         ExecStart = ''
-          ${pkgs.break-enforcer}/bin/break-enforcer run \
+          ${inputs.break-enforcer.defaultPackage.x86_64-linux}/bin/break-enforcer run \
           --work-duration ${cfg.work-duration} \
           --break-duration ${cfg.break-duration} \
            ${
