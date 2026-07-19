@@ -106,7 +106,7 @@ in
       serviceConfig = {
         Type = "simple";
         ExecStart = ''
-          ${inputs.break-enforcer.defaultPackage.x86_64-linux}/bin/break-enforcer run \
+          ${inputs.break-enforcer.defaultPackage.${pkgs.system}}/bin/break-enforcer run \
           --work-duration ${cfg.work-duration} \
           --break-duration ${cfg.break-duration} \
            ${
