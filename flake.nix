@@ -12,69 +12,85 @@
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
-    flake-utils.lib.eachDefaultSystem
-      (system:
-        let
-          overlays = [ (import rust-overlay) ];
-          pkgs = import nixpkgs { inherit system overlays; };
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+      rust-overlay,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
+      let
+        overlays = [ (import rust-overlay) ];
+        pkgs = import nixpkgs { inherit system overlays; };
 
-          ####################################################################
-          #### break-enforcer package                                     ####
-          ####################################################################
-          break-enforcer = with pkgs; let
+        ####################################################################
+        #### break-enforcer package                                     ####
+        ####################################################################
+        break-enforcer =
+          with pkgs;
+          let
             src = ./.;
-            
+
             cargoTOML = lib.importTOML "${src}/Cargo.toml";
             rustToolchain = rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
             rust = makeRustPlatform {
               cargo = rustToolchain;
               rustc = rustToolchain;
             };
-          in 
-			  rust.buildRustPackage
-				{
-				  pname = cargoTOML.package.name;
-				  version = cargoTOML.package.version;
+          in
+          rust.buildRustPackage {
+            pname = cargoTOML.package.name;
+            version = cargoTOML.package.version;
 
-				  inherit src;
+            inherit src;
 
-				  cargoLock = { lockFile = "${src}/Cargo.lock"; };
-
-				  meta = {
-					inherit (cargoTOML.package) description homepage;
-					maintainers = cargoTOML.package.authors;
-				  };
-
-				  nativeBuildInputs = with pkgs; [
-				  	makeWrapper
-				  ];
-
-				  postInstall = ''
-				    wrapProgram $out/bin/break-enforcer \
-					  --prefix PATH : "${nixpkgs.lib.makeBinPath [
-					  pkgs.alsa-utils pkgs.libnotify ]}"
-				  '';
-				};
-
-          ####################################################################
-          #### dev shell                                                  ####
-          ####################################################################
-          devShell = with pkgs;
-            mkShell {
-              name = "break-enforcer";
-              inputsFrom = [ break-enforcer ];
-              RUST_SRC_PATH = "${rustPlatform.rustLibSrc}";
-              CARGO_TERM_COLOR = "always";
+            cargoLock = {
+              lockFile = "${src}/Cargo.lock";
             };
-        in
-        {
-          devShells.default = devShell;
-		  defaultPackage = break-enforcer;
-        }) // {
-			overlays.default = _: prev: {
-				break-enforcer = self.defaultPackage.${prev.system};
-			};
-			  nixosModules.break-enforcer = ./nix_module.nix;
-		};
+
+            meta = {
+              inherit (cargoTOML.package) description homepage;
+              maintainers = cargoTOML.package.authors;
+            };
+
+            nativeBuildInputs = with pkgs; [
+              makeWrapper
+            ];
+
+            postInstall = ''
+              				    wrapProgram $out/bin/break-enforcer \
+              					  --prefix PATH : "${
+                       nixpkgs.lib.makeBinPath [
+                         pkgs.alsa-utils
+                         pkgs.libnotify
+                       ]
+                     }"
+              				  '';
+          };
+
+        ####################################################################
+        #### dev shell                                                  ####
+        ####################################################################
+        devShell =
+          with pkgs;
+          mkShell {
+            name = "break-enforcer";
+            inputsFrom = [ break-enforcer ];
+            RUST_SRC_PATH = "${rustPlatform.rustLibSrc}";
+            CARGO_TERM_COLOR = "always";
+          };
+      in
+      {
+        devShells.default = devShell;
+        defaultPackage = break-enforcer;
+      }
+    )
+    // {
+      overlays.default = _: prev: {
+        break-enforcer = self.defaultPackage.${prev.system};
+      };
+      nixosModules.break-enforcer = ./nix_module.nix;
+    };
 }
